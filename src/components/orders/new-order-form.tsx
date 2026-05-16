@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { useMemo, useState } from "react";
-import { ArrowLeft, PackagePlus, PlusCircle, Save } from "lucide-react";
+import { ArrowLeft, PackagePlus, PlusCircle, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
@@ -26,6 +26,7 @@ type CreateOrderAction = (input: {
   priority: OrderPriority;
   deadline: string;
   notes: string;
+  items: ManualOrderItem[];
   itemName: string;
   sku: string;
   material: string;
@@ -36,8 +37,34 @@ type CreateOrderAction = (input: {
   printFileStatus: PrintFileStatus;
 }) => Promise<{ ok: boolean; error?: string }>;
 
+type ManualOrderItem = {
+  id: string;
+  itemName: string;
+  sku: string;
+  material: string;
+  size: string;
+  quantity: string;
+  finishing: string;
+  printFileName: string;
+  printFileStatus: PrintFileStatus;
+};
+
 const inputClass =
   "w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10";
+
+function createBlankItem(): ManualOrderItem {
+  return {
+    id: `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    itemName: "",
+    sku: "",
+    material: "",
+    size: "",
+    quantity: "1",
+    finishing: "",
+    printFileName: "",
+    printFileStatus: "missing",
+  };
+}
 
 function Field({
   label,
@@ -89,16 +116,21 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
   const [priority, setPriority] = useState<OrderPriority>("normal");
   const [deadline, setDeadline] = useState("");
   const [notes, setNotes] = useState("");
-  const [itemName, setItemName] = useState("");
-  const [sku, setSku] = useState("");
-  const [material, setMaterial] = useState("");
-  const [size, setSize] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [finishing, setFinishing] = useState("");
-  const [printFileName, setPrintFileName] = useState("");
-  const [printFileStatus, setPrintFileStatus] = useState<PrintFileStatus>("missing");
+  const [items, setItems] = useState<ManualOrderItem[]>([createBlankItem()]);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  function updateItem(itemId: string, patch: Partial<ManualOrderItem>) {
+    setItems((currentItems) => currentItems.map((item) => (item.id === itemId ? { ...item, ...patch } : item)));
+  }
+
+  function addItem() {
+    setItems((currentItems) => [...currentItems, createBlankItem()]);
+  }
+
+  function removeItem(itemId: string) {
+    setItems((currentItems) => (currentItems.length === 1 ? currentItems : currentItems.filter((item) => item.id !== itemId)));
+  }
 
   async function submitOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,14 +155,15 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
         priority,
         deadline,
         notes,
-        itemName,
-        sku,
-        material,
-        size,
-        quantity,
-        finishing,
-        printFileName,
-        printFileStatus,
+        items,
+        itemName: items[0]?.itemName ?? "",
+        sku: items[0]?.sku ?? "",
+        material: items[0]?.material ?? "",
+        size: items[0]?.size ?? "",
+        quantity: items[0]?.quantity ?? "1",
+        finishing: items[0]?.finishing ?? "",
+        printFileName: items[0]?.printFileName ?? "",
+        printFileStatus: items[0]?.printFileStatus ?? "missing",
       });
 
       if (!result.ok) {
@@ -227,26 +260,103 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
             </div>
           </Section>
 
-          <Section title="Product">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Field label="Product name">
-                <input value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder="Hissfahne, Banner, Beachflag..." className={inputClass} />
-              </Field>
-              <Field label="SKU">
-                <input value={sku} onChange={(event) => setSku(event.target.value)} className={inputClass} />
-              </Field>
-              <Field label="Quantity">
-                <input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className={inputClass} />
-              </Field>
-              <Field label="Material">
-                <input value={material} onChange={(event) => setMaterial(event.target.value)} placeholder="Normal Stoff, Mesh, 155g..." className={inputClass} />
-              </Field>
-              <Field label="Size">
-                <input value={size} onChange={(event) => setSize(event.target.value)} placeholder="120 x 300 cm" className={inputClass} />
-              </Field>
-              <Field label="Finishing">
-                <input value={finishing} onChange={(event) => setFinishing(event.target.value)} placeholder="Eyelets, sleeve, hooks..." className={inputClass} />
-              </Field>
+          <Section title="Products">
+            <div className="space-y-4">
+              {items.map((item, index) => (
+                <div key={item.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-white">Item {index + 1}</p>
+                      <p className="mt-1 text-xs text-slate-500">Each item becomes its own production row.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => removeItem(item.id)}
+                      disabled={items.length === 1}
+                      className="rounded-xl border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <Field label="Product name">
+                      <input
+                        value={item.itemName}
+                        onChange={(event) => updateItem(item.id, { itemName: event.target.value })}
+                        placeholder="Hissfahne, Banner, Beachflag..."
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="SKU">
+                      <input value={item.sku} onChange={(event) => updateItem(item.id, { sku: event.target.value })} className={inputClass} />
+                    </Field>
+                    <Field label="Quantity">
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onChange={(event) => updateItem(item.id, { quantity: event.target.value })}
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Material">
+                      <input
+                        value={item.material}
+                        onChange={(event) => updateItem(item.id, { material: event.target.value })}
+                        placeholder="Normal Stoff, Mesh, 155g..."
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Size">
+                      <input
+                        value={item.size}
+                        onChange={(event) => updateItem(item.id, { size: event.target.value })}
+                        placeholder="120 x 300 cm"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Finishing">
+                      <input
+                        value={item.finishing}
+                        onChange={(event) => updateItem(item.id, { finishing: event.target.value })}
+                        placeholder="Eyelets, sleeve, hooks..."
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Print file name">
+                      <input
+                        value={item.printFileName}
+                        onChange={(event) => updateItem(item.id, { printFileName: event.target.value })}
+                        placeholder="WF-xxxxx_file.pdf"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Print file status">
+                      <select
+                        value={item.printFileStatus}
+                        onChange={(event) => updateItem(item.id, { printFileStatus: event.target.value as PrintFileStatus })}
+                        className={inputClass}
+                      >
+                        <option value="missing">missing</option>
+                        <option value="received">received</option>
+                        <option value="approved">approved</option>
+                        <option value="problem">problem</option>
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addItem}
+                className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <PlusCircle className="h-4 w-4" />
+                Add item
+              </Button>
             </div>
           </Section>
         </div>
@@ -278,19 +388,18 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
             </div>
           </Section>
 
-          <Section title="Druckdaten">
-            <div className="space-y-4">
-              <Field label="Print file name">
-                <input value={printFileName} onChange={(event) => setPrintFileName(event.target.value)} placeholder="WF-xxxxx_file.pdf" className={inputClass} />
-              </Field>
-              <Field label="Print file status">
-                <select value={printFileStatus} onChange={(event) => setPrintFileStatus(event.target.value as PrintFileStatus)} className={inputClass}>
-                  <option value="missing">missing</option>
-                  <option value="received">received</option>
-                  <option value="approved">approved</option>
-                  <option value="problem">problem</option>
-                </select>
-              </Field>
+          <Section title="Items summary">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-xl bg-slate-900/70 p-3 text-sm">
+                <span className="text-slate-500">Items</span>
+                <span className="font-medium text-white">{items.length}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-slate-900/70 p-3 text-sm">
+                <span className="text-slate-500">Total quantity</span>
+                <span className="font-medium text-white">
+                  {items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)}
+                </span>
+              </div>
             </div>
           </Section>
 
@@ -313,7 +422,7 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                 <div>
                   <h2 className="text-lg font-semibold text-white">First version</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    This creates one order item. Multi-item manual orders can build on the same database contract next.
+                    This creates every listed product as a separate order item and production row.
                   </p>
                 </div>
               </div>

@@ -1,4 +1,7 @@
 import { connection } from "next/server";
+import Link from "next/link";
+import { PlusCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { OrdersWorkspace } from "@/src/components/orders/orders-workspace";
 import { getOrdersWithFallback } from "@/src/lib/orders-db";
 
@@ -16,9 +19,17 @@ export default async function OrdersPage() {
             Central queue for WooCommerce, eBay and E-Mail orders. Current data source: {source === "database" ? "Postgres" : "mock fallback"}.
           </p>
         </div>
-        <span className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
-          {orders.length} orders
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
+            {orders.length} orders
+          </span>
+          <Button asChild className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+            <Link href="/orders/new">
+              <PlusCircle className="h-4 w-4" />
+              New order
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <OrdersWorkspace orders={orders} />

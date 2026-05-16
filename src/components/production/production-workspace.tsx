@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -120,7 +121,13 @@ function BatchTable({
               key={`${row.id}-${column.key}`}
               className={column.key === "orderId" || column.key === "position" ? "font-medium text-cyan-100" : "text-slate-300"}
             >
-              {column.getValue(row, rowIndex)}
+              {column.key === "orderId" ? (
+                <Link href={`/orders/${row.orderId}`} className="underline-offset-4 transition hover:text-[#0a84ff] hover:underline">
+                  {column.getValue(row, rowIndex)}
+                </Link>
+              ) : (
+                column.getValue(row, rowIndex)
+              )}
             </span>
           ))}
           <span className="text-slate-300">

@@ -24,11 +24,26 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
 import { manufacturerLabels } from "@/src/lib/mock-production";
-import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
 import type { ManufacturerId } from "@/src/types/production";
 import { StatusChip } from "./status-chip";
 
 const printFileStatuses: PrintFileStatus[] = ["missing", "received", "approved", "problem"];
+const editableOrderStatuses: OrderStatus[] = [
+  "New",
+  "Payment open",
+  "Print files missing",
+  "Print files review",
+  "Customer reply needed",
+  "Approval missing",
+  "Production ready",
+  "In production",
+  "Ready to ship",
+  "Shipped",
+];
+const editablePriorities: OrderPriority[] = ["normal", "high", "urgent"];
+const editInputClass =
+  "w-full rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10";
 
 type PrintFileUpdateAction = (input: {
   orderNumber: string;
@@ -54,6 +69,25 @@ type TrackingUpdateAction = (input: {
   orderNumber: string;
   carrier: string;
   trackingNumber: string;
+}) => Promise<{
+  ok: boolean;
+  error?: string;
+  timelineEntry?: ActivityLogEntry;
+}>;
+
+type OrderEditAction = (input: {
+  orderNumber: string;
+  status: OrderStatus;
+  priority: OrderPriority;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  shippingCompany: string;
+  shippingName: string;
+  shippingStreet: string;
+  shippingPostalCode: string;
+  shippingCity: string;
+  shippingCountry: string;
 }) => Promise<{
   ok: boolean;
   error?: string;
@@ -176,16 +210,32 @@ export function OrderDetailWorkspace({
   onPrintFileUpdate,
   onStatusUpdate,
   onTrackingUpdate,
+  onOrderEdit,
 }: {
   order: Order;
   onPrintFileUpdate?: PrintFileUpdateAction;
   onStatusUpdate?: StatusUpdateAction;
   onTrackingUpdate?: TrackingUpdateAction;
+  onOrderEdit?: OrderEditAction;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<OrderItem[]>(order.items);
   const [status, setStatus] = useState<OrderStatus>(order.status);
+  const [priority, setPriority] = useState<OrderPriority>(order.priority);
   const [timeline, setTimeline] = useState<ActivityLogEntry[]>(order.timeline);
+  const [customerDraft, setCustomerDraft] = useState({
+    name: order.customer,
+    email: order.email,
+    phone: order.phone === "-" ? "" : order.phone,
+  });
+  const [shippingDraft, setShippingDraft] = useState({
+    company: order.shippingAddress.company === "-" ? "" : order.shippingAddress.company,
+    name: order.shippingAddress.name === "-" ? "" : order.shippingAddress.name,
+    street: order.shippingAddress.street === "-" ? "" : order.shippingAddress.street,
+    postalCode: order.shippingAddress.postalCode,
+    city: order.shippingAddress.city === "-" ? "" : order.shippingAddress.city,
+    country: order.shippingAddress.country === "-" ? "" : order.shippingAddress.country,
+  });
   const [fileNameDrafts, setFileNameDrafts] = useState<Record<string, string>>(
     Object.fromEntries(order.items.map((item) => [item.sku, item.printFile.fileName]))
   );
@@ -193,8 +243,10 @@ export function OrderDetailWorkspace({
   const [trackingNumber, setTrackingNumber] = useState(order.trackingNumber);
   const [savingSku, setSavingSku] = useState<string | null>(null);
   const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | null>(null);
+  const [savingOrderEdit, setSavingOrderEdit] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
 
   const allPrintFilesApproved = useMemo(
     () => items.length > 0 && items.every((item) => getItemPrintFiles(item).every((printFile) => printFile.status === "approved")),
@@ -348,6 +400,52 @@ export function OrderDetailWorkspace({
     }
   }
 
+  async function saveOrderEdits() {
+    if (!customerDraft.name.trim() || !customerDraft.email.trim()) {
+      setEditMessage("Customer name and email are required.");
+      return;
+    }
+
+    if (!onOrderEdit) {
+      addTimelineEntry("Order customer, shipping or workflow fields updated.");
+      setEditMessage("Order fields updated locally.");
+      return;
+    }
+
+    setSavingOrderEdit(true);
+    setEditMessage(null);
+
+    try {
+      const result = await onOrderEdit({
+        orderNumber: order.id,
+        status,
+        priority,
+        customerName: customerDraft.name,
+        customerEmail: customerDraft.email,
+        customerPhone: customerDraft.phone,
+        shippingCompany: shippingDraft.company,
+        shippingName: shippingDraft.name,
+        shippingStreet: shippingDraft.street,
+        shippingPostalCode: shippingDraft.postalCode,
+        shippingCity: shippingDraft.city,
+        shippingCountry: shippingDraft.country,
+      });
+
+      if (result.ok && result.timelineEntry) {
+        setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
+        setEditMessage("Order fields saved to database.");
+        router.refresh();
+        return;
+      }
+
+      setEditMessage(result.error ?? "Order fields could not be saved to the database.");
+    } catch {
+      setEditMessage("Order fields could not be saved to the database.");
+    } finally {
+      setSavingOrderEdit(false);
+    }
+  }
+
   function updatePrintFileName(sku: string) {
     const nextFileName = fileNameDrafts[sku]?.trim() ?? "";
     const item = items.find((currentItem) => currentItem.sku === sku);
@@ -452,7 +550,7 @@ export function OrderDetailWorkspace({
               {sourceLabels[order.source]}
             </span>
             <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-              {priorityLabels[order.priority]} priority
+              {priorityLabels[priority]} priority
             </span>
             <span
               className={`rounded-full border px-3 py-1 text-xs font-medium ${
@@ -487,16 +585,16 @@ export function OrderDetailWorkspace({
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             <DetailCard title="Customer" icon={UserRound}>
               <div className="space-y-3">
-                <InfoRow label="Name" value={order.customer} />
+                <InfoRow label="Name" value={customerDraft.name} />
                 <InfoRow
                   label="E-Mail"
                   value={
-                    <a href={`mailto:${order.email}`} className="text-cyan-200 hover:text-cyan-100">
-                      {order.email}
+                    <a href={`mailto:${customerDraft.email}`} className="text-cyan-200 hover:text-cyan-100">
+                      {customerDraft.email}
                     </a>
                   }
                 />
-                <InfoRow label="Phone" value={order.phone} />
+                <InfoRow label="Phone" value={customerDraft.phone || "-"} />
               </div>
             </DetailCard>
 
@@ -505,7 +603,16 @@ export function OrderDetailWorkspace({
             </DetailCard>
 
             <DetailCard title="Shipping address" icon={Truck}>
-              <AddressBlock address={order.shippingAddress} />
+              <AddressBlock
+                address={{
+                  company: shippingDraft.company || "-",
+                  name: shippingDraft.name || "-",
+                  street: shippingDraft.street || "-",
+                  postalCode: shippingDraft.postalCode,
+                  city: shippingDraft.city || "-",
+                  country: shippingDraft.country || "-",
+                }}
+              />
             </DetailCard>
           </div>
 
@@ -689,6 +796,106 @@ export function OrderDetailWorkspace({
         </div>
 
         <aside className="space-y-5">
+          <DetailCard title="Edit order" icon={ClipboardList}>
+            <div className="space-y-3">
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Status</span>
+                <select value={status} onChange={(event) => setStatus(event.target.value as OrderStatus)} className={editInputClass}>
+                  {editableOrderStatuses.map((editableStatus) => (
+                    <option key={editableStatus} value={editableStatus}>
+                      {editableStatus}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Priority</span>
+                <select value={priority} onChange={(event) => setPriority(event.target.value as OrderPriority)} className={editInputClass}>
+                  {editablePriorities.map((editablePriority) => (
+                    <option key={editablePriority} value={editablePriority}>
+                      {priorityLabels[editablePriority]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 gap-3">
+                <input
+                  value={customerDraft.name}
+                  onChange={(event) => setCustomerDraft((draft) => ({ ...draft, name: event.target.value }))}
+                  placeholder="Customer name"
+                  className={editInputClass}
+                />
+                <input
+                  type="email"
+                  value={customerDraft.email}
+                  onChange={(event) => setCustomerDraft((draft) => ({ ...draft, email: event.target.value }))}
+                  placeholder="Customer email"
+                  className={editInputClass}
+                />
+                <input
+                  value={customerDraft.phone}
+                  onChange={(event) => setCustomerDraft((draft) => ({ ...draft, phone: event.target.value }))}
+                  placeholder="Customer phone"
+                  className={editInputClass}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-800 pt-3">
+                <input
+                  value={shippingDraft.company}
+                  onChange={(event) => setShippingDraft((draft) => ({ ...draft, company: event.target.value }))}
+                  placeholder="Shipping company"
+                  className={editInputClass}
+                />
+                <input
+                  value={shippingDraft.name}
+                  onChange={(event) => setShippingDraft((draft) => ({ ...draft, name: event.target.value }))}
+                  placeholder="Shipping name"
+                  className={editInputClass}
+                />
+                <input
+                  value={shippingDraft.street}
+                  onChange={(event) => setShippingDraft((draft) => ({ ...draft, street: event.target.value }))}
+                  placeholder="Shipping street"
+                  className={editInputClass}
+                />
+                <div className="grid grid-cols-[0.8fr_1fr] gap-3">
+                  <input
+                    value={shippingDraft.postalCode}
+                    onChange={(event) => setShippingDraft((draft) => ({ ...draft, postalCode: event.target.value }))}
+                    placeholder="ZIP"
+                    className={editInputClass}
+                  />
+                  <input
+                    value={shippingDraft.city}
+                    onChange={(event) => setShippingDraft((draft) => ({ ...draft, city: event.target.value }))}
+                    placeholder="City"
+                    className={editInputClass}
+                  />
+                </div>
+                <input
+                  value={shippingDraft.country}
+                  onChange={(event) => setShippingDraft((draft) => ({ ...draft, country: event.target.value }))}
+                  placeholder="Country"
+                  className={editInputClass}
+                />
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveOrderEdits}
+                disabled={savingOrderEdit}
+                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <FileCheck2 className="h-4 w-4" />
+                {savingOrderEdit ? "Saving..." : "Save order changes"}
+              </Button>
+              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Customer, shipping, status and priority can be changed after order intake."}</p>
+            </div>
+          </DetailCard>
+
           <DetailCard title="Status" icon={FileCheck2}>
             <div className="space-y-3">
               <InfoRow label="Payment" value={order.paymentStatus} />
@@ -738,7 +945,11 @@ export function OrderDetailWorkspace({
 
           <DetailCard title="Quick actions" icon={MessageSquarePlus}>
             <div className="space-y-3">
-              <Button className="w-full justify-start rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
                 <Mail className="h-4 w-4" />
                 Send Druckfreigabe reminder
               </Button>

@@ -54,6 +54,32 @@ const printFileSideMap: Record<string, "front" | "back" | "general"> = {
   GENERAL: "general",
 };
 
+function inferManufacturer(row: {
+  productName: string;
+  sku: string | null;
+  material: string | null;
+}): OrderItemProduction["manufacturer"] {
+  const haystack = `${row.productName} ${row.sku ?? ""} ${row.material ?? ""}`.toLowerCase();
+
+  if (haystack.includes("155") || haystack.includes("premium") || haystack.includes("satin") || haystack.includes("zimmer")) {
+    return "logo_pl";
+  }
+
+  if (haystack.includes("beachflag") || haystack.includes("beach flag") || haystack.includes("bf-")) {
+    return "mph_maciej";
+  }
+
+  if (haystack.includes("roll-up") || haystack.includes("rollup") || haystack.includes("x-banner") || haystack.includes("xbanner")) {
+    return "wmd";
+  }
+
+  if (haystack.includes("fahne") || haystack.includes("flag") || haystack.includes("banner") || haystack.includes("mesh")) {
+    return "opinion";
+  }
+
+  return undefined;
+}
+
 function formatDate(date: Date | null) {
   return date ? date.toISOString().slice(0, 10) : "-";
 }
@@ -166,19 +192,29 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
     phone: order.customerPhone ?? "-",
     billingAddress: mapAddress(order.billingAddress),
     shippingAddress: mapAddress(order.shippingAddress),
-    items: order.items.map((item) => ({
-      name: item.productName,
-      sku: item.sku ?? `line-${item.lineNumber}`,
-      size: item.size ?? "-",
-      quantity: item.quantity,
-      printFile: mapPrimaryPrintFile(item.printFiles),
-      printFiles: item.printFiles.map(mapPrintFile),
-      production: {
-        manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
-        batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
-        status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
-      },
-    })),
+    items: order.items.map((item) => {
+      const manufacturer = item.productionState?.manufacturer?.code
+        ? manufacturerMap[item.productionState.manufacturer.code]
+        : inferManufacturer(item);
+
+      return {
+        name: item.productName,
+        sku: item.sku ?? `line-${item.lineNumber}`,
+        size: item.size ?? "-",
+        quantity: item.quantity,
+        printFile: mapPrimaryPrintFile(item.printFiles),
+        printFiles: item.printFiles.map(mapPrintFile),
+        production: {
+          manufacturer,
+          batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
+          status: item.productionState?.status
+            ? productionStatusMap[item.productionState.status] ?? "not_routed"
+            : manufacturer
+              ? "draft"
+              : "not_routed",
+        },
+      };
+    }),
     amount: formatAmount(order.amountCents, order.currency),
     paymentStatus: order.paymentStatus === "PAID" ? "Paid" : "Open",
     artworkStatus: "Druckdaten",
@@ -237,19 +273,29 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
     phone: order.customerPhone ?? "-",
     billingAddress: mapAddress(order.billingAddress),
     shippingAddress: mapAddress(order.shippingAddress),
-    items: order.items.map((item) => ({
-      name: item.productName,
-      sku: item.sku ?? `line-${item.lineNumber}`,
-      size: item.size ?? "-",
-      quantity: item.quantity,
-      printFile: mapPrimaryPrintFile(item.printFiles),
-      printFiles: item.printFiles.map(mapPrintFile),
-      production: {
-        manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
-        batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
-        status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
-      },
-    })),
+    items: order.items.map((item) => {
+      const manufacturer = item.productionState?.manufacturer?.code
+        ? manufacturerMap[item.productionState.manufacturer.code]
+        : inferManufacturer(item);
+
+      return {
+        name: item.productName,
+        sku: item.sku ?? `line-${item.lineNumber}`,
+        size: item.size ?? "-",
+        quantity: item.quantity,
+        printFile: mapPrimaryPrintFile(item.printFiles),
+        printFiles: item.printFiles.map(mapPrintFile),
+        production: {
+          manufacturer,
+          batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
+          status: item.productionState?.status
+            ? productionStatusMap[item.productionState.status] ?? "not_routed"
+            : manufacturer
+              ? "draft"
+              : "not_routed",
+        },
+      };
+    }),
     amount: formatAmount(order.amountCents, order.currency),
     paymentStatus: order.paymentStatus === "PAID" ? "Paid" : "Open",
     artworkStatus: "Druckdaten",

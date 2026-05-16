@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ActivityLogEntry, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
 type PrintFileUpdateInput = {
@@ -28,6 +28,21 @@ type TrackingUpdateInput = {
   trackingNumber: string;
 };
 
+type EditableOrderUpdateInput = {
+  orderNumber: string;
+  status: OrderStatus;
+  priority: OrderPriority;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  shippingCompany: string;
+  shippingName: string;
+  shippingStreet: string;
+  shippingPostalCode: string;
+  shippingCity: string;
+  shippingCountry: string;
+};
+
 type OrderActionResult = {
   ok: boolean;
   error?: string;
@@ -44,6 +59,25 @@ const dbStatusByUiStatus: Record<PrintFileStatus, "MISSING" | "RECEIVED" | "APPR
 const dbOrderStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PRODUCTION" | "READY_TO_SHIP"> = {
   "In production": "IN_PRODUCTION",
   "Ready to ship": "READY_TO_SHIP",
+};
+
+const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "PRINT_FILES_MISSING" | "PRINT_FILES_REVIEW" | "CUSTOMER_REPLY_NEEDED" | "APPROVAL_MISSING" | "PRODUCTION_READY" | "IN_PRODUCTION" | "READY_TO_SHIP" | "SHIPPED"> = {
+  New: "NEW",
+  "Payment open": "PAYMENT_OPEN",
+  "Print files missing": "PRINT_FILES_MISSING",
+  "Print files review": "PRINT_FILES_REVIEW",
+  "Customer reply needed": "CUSTOMER_REPLY_NEEDED",
+  "Approval missing": "APPROVAL_MISSING",
+  "Production ready": "PRODUCTION_READY",
+  "In production": "IN_PRODUCTION",
+  "Ready to ship": "READY_TO_SHIP",
+  Shipped: "SHIPPED",
+};
+
+const dbPriorityByUiPriority: Record<OrderPriority, "NORMAL" | "HIGH" | "URGENT"> = {
+  normal: "NORMAL",
+  high: "HIGH",
+  urgent: "URGENT",
 };
 
 function formatTimestamp(date: Date) {
@@ -231,6 +265,90 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
         entityType: "ORDER",
         actor: "Operator",
         message,
+        orderId: order.id,
+        createdAt: now,
+      },
+    });
+  });
+
+  revalidatePath(`/orders/${input.orderNumber}`);
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    timelineEntry: {
+      id: activity.id,
+      timestamp: formatTimestamp(activity.createdAt),
+      actor: activity.actor,
+      message: activity.message,
+    },
+  };
+}
+
+export async function updateOrderEditableFields(input: EditableOrderUpdateInput): Promise<OrderActionResult> {
+  if (!hasDatabaseUrl()) {
+    return {
+      ok: false,
+      error: "DATABASE_URL is not configured yet, so this order change is only kept in local mock state.",
+    };
+  }
+
+  const customerName = input.customerName.trim();
+  const customerEmail = input.customerEmail.trim();
+
+  if (!customerName || !customerEmail) {
+    return { ok: false, error: "Customer name and email are required." };
+  }
+
+  const prisma = getPrisma();
+  const now = new Date();
+
+  const order = await prisma.order.findUnique({
+    where: { orderNumber: input.orderNumber },
+    include: { shippingAddress: true },
+  });
+
+  if (!order) {
+    return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  const activity = await prisma.$transaction(async (tx) => {
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        status: dbAnyOrderStatusByUiStatus[input.status],
+        priority: dbPriorityByUiPriority[input.priority],
+        customerName,
+        customerEmail,
+        customerPhone: input.customerPhone.trim() || null,
+        shippingAddress: {
+          upsert: {
+            create: {
+              company: input.shippingCompany.trim() || null,
+              name: input.shippingName.trim() || customerName,
+              street: input.shippingStreet.trim() || null,
+              postalCode: input.shippingPostalCode.trim() || null,
+              city: input.shippingCity.trim() || null,
+              country: input.shippingCountry.trim() || null,
+            },
+            update: {
+              company: input.shippingCompany.trim() || null,
+              name: input.shippingName.trim() || customerName,
+              street: input.shippingStreet.trim() || null,
+              postalCode: input.shippingPostalCode.trim() || null,
+              city: input.shippingCity.trim() || null,
+              country: input.shippingCountry.trim() || null,
+            },
+          },
+        },
+      },
+    });
+
+    return tx.activityLog.create({
+      data: {
+        entityType: "ORDER",
+        actor: "Operator",
+        message: "Order customer, shipping or workflow fields updated.",
         orderId: order.id,
         createdAt: now,
       },

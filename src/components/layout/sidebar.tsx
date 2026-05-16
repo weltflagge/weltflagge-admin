@@ -17,7 +17,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-72 shrink-0 border-r border-slate-800/80 bg-slate-950/70 p-5 backdrop-blur-xl lg:block">
+    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-slate-800/80 bg-slate-950/70 p-5 backdrop-blur-xl lg:block">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
           <Wand2 className="h-5 w-5" />

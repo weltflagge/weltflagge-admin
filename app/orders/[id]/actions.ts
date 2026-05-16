@@ -210,8 +210,8 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
   const carrier = input.carrier.trim();
   const trackingNumber = input.trackingNumber.trim();
 
-  if (!trackingNumber) {
-    return { ok: false, error: "Tracking number is required." };
+  if (!carrier && !trackingNumber) {
+    return { ok: false, error: "Carrier or tracking number is required." };
   }
 
   const prisma = getPrisma();
@@ -235,7 +235,7 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
       where: { id: order.id },
       data: {
         carrier: carrier || null,
-        trackingNumber,
+        trackingNumber: trackingNumber || null,
       },
     });
 

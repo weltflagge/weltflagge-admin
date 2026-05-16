@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CalendarClock,
@@ -141,6 +142,7 @@ export function OrderDetailWorkspace({
   onStatusUpdate?: StatusUpdateAction;
   onTrackingUpdate?: TrackingUpdateAction;
 }) {
+  const router = useRouter();
   const [items, setItems] = useState<OrderItem[]>(order.items);
   const [status, setStatus] = useState<OrderStatus>(order.status);
   const [timeline, setTimeline] = useState<ActivityLogEntry[]>(order.timeline);
@@ -152,6 +154,7 @@ export function OrderDetailWorkspace({
   const [savingSku, setSavingSku] = useState<string | null>(null);
   const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   const allPrintFilesApproved = useMemo(
     () => items.length > 0 && items.every((item) => item.printFile.status === "approved"),
@@ -249,8 +252,8 @@ export function OrderDetailWorkspace({
     const nextCarrier = carrier.trim();
     const nextTrackingNumber = trackingNumber.trim();
 
-    if (!nextTrackingNumber) {
-      setSaveMessage("Tracking number is required before saving.");
+    if (!nextCarrier && !nextTrackingNumber) {
+      setTrackingMessage("Carrier or tracking number is required before saving.");
       return;
     }
 
@@ -260,11 +263,12 @@ export function OrderDetailWorkspace({
 
     if (!onTrackingUpdate) {
       addTimelineEntry(fallbackMessage);
+      setTrackingMessage("Shipping details updated locally.");
       return;
     }
 
     setSavingOrderAction("tracking");
-    setSaveMessage(null);
+    setTrackingMessage(null);
 
     try {
       const result = await onTrackingUpdate({
@@ -272,10 +276,21 @@ export function OrderDetailWorkspace({
         carrier: nextCarrier,
         trackingNumber: nextTrackingNumber,
       });
-      addActionResultToTimeline(result, fallbackMessage);
+
+      if (result.ok && result.timelineEntry) {
+        setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
+        setCarrier(nextCarrier);
+        setTrackingNumber(nextTrackingNumber);
+        setTrackingMessage("Shipping details saved to database.");
+        router.refresh();
+        return;
+      }
+
+      addTimelineEntry(fallbackMessage);
+      setTrackingMessage(result.error ?? "Shipping details could not be saved to the database.");
     } catch {
       addTimelineEntry(fallbackMessage);
-      setSaveMessage("Tracking number could not be saved to the database.");
+      setTrackingMessage("Shipping details could not be saved to the database.");
     } finally {
       setSavingOrderAction(null);
     }
@@ -543,7 +558,19 @@ export function OrderDetailWorkspace({
                 placeholder="Add tracking number..."
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
-              <p className="text-xs leading-5 text-slate-500">Tracking is saved independently from the main order closure.</p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveTrackingNumber}
+                disabled={savingOrderAction === "tracking"}
+                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <Send className="h-4 w-4" />
+                {savingOrderAction === "tracking" ? "Saving..." : "Save shipping details"}
+              </Button>
+              <p className="text-xs leading-5 text-slate-500">
+                {trackingMessage ?? "Tracking is saved independently from the main order closure."}
+              </p>
             </div>
           </DetailCard>
 

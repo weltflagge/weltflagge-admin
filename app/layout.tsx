@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Sidebar } from "@/src/components/layout/sidebar";
+import { Topbar } from "@/src/components/layout/topbar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,17 +14,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full bg-[#070a12] text-slate-100">
-        <div className="pointer-events-none fixed inset-0">
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(7,10,18,1)_42%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.08),transparent_28%)]" />
-        </div>
-        <div className="relative flex min-h-screen">
+    <html lang="en" className="h-full dark antialiased">
+      <body className="min-h-full bg-black text-zinc-100">
+        <div className="flex min-h-screen bg-black">
           <Sidebar />
-          <main className="min-w-0 flex-1 p-4 md:p-8">
-            <div className="mx-auto max-w-7xl">{children}</div>
-          </main>
+          <div className="min-w-0 flex-1">
+            <Topbar />
+            <main className="px-4 py-6 md:px-8 lg:px-10">
+              <div className="mx-auto max-w-[108rem]">{children}</div>
+            </main>
+          </div>
         </div>
       </body>
     </html>

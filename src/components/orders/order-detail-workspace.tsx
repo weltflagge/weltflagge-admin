@@ -145,9 +145,9 @@ function AddressBlock({ address }: { address: OrderAddress }) {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-900/70 p-3 text-sm">
+    <div className="rounded-lg bg-slate-900/70 p-3 text-sm">
       <span className="text-slate-500">{label}</span>
-      <span className="text-right font-medium text-slate-200">{value}</span>
+      <span className="mt-1 block min-w-0 break-words font-medium text-slate-200">{value}</span>
     </div>
   );
 }

@@ -43,6 +43,11 @@ type EditableOrderUpdateInput = {
   shippingCountry: string;
 };
 
+type OrderArchiveInput = {
+  orderNumber: string;
+  action: "ship" | "complete" | "reopen";
+};
+
 type OrderActionResult = {
   ok: boolean;
   error?: string;
@@ -61,7 +66,7 @@ const dbOrderStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PROD
   "Ready to ship": "READY_TO_SHIP",
 };
 
-const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "PRINT_FILES_MISSING" | "PRINT_FILES_REVIEW" | "CUSTOMER_REPLY_NEEDED" | "APPROVAL_MISSING" | "PRODUCTION_READY" | "IN_PRODUCTION" | "READY_TO_SHIP" | "SHIPPED"> = {
+const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "PRINT_FILES_MISSING" | "PRINT_FILES_REVIEW" | "CUSTOMER_REPLY_NEEDED" | "APPROVAL_MISSING" | "PRODUCTION_READY" | "IN_PRODUCTION" | "READY_TO_SHIP" | "SHIPPED" | "COMPLETED"> = {
   New: "NEW",
   "Payment open": "PAYMENT_OPEN",
   "Print files missing": "PRINT_FILES_MISSING",
@@ -72,6 +77,7 @@ const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "
   "In production": "IN_PRODUCTION",
   "Ready to ship": "READY_TO_SHIP",
   Shipped: "SHIPPED",
+  Completed: "COMPLETED",
 };
 
 const dbPriorityByUiPriority: Record<OrderPriority, "NORMAL" | "HIGH" | "URGENT"> = {
@@ -312,6 +318,10 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
   }
 
+  if ((input.status === "Shipped" || input.status === "Completed") && (!order.carrier || !order.trackingNumber)) {
+    return { ok: false, error: "Carrier and tracking number are required before shipping or closing an order." };
+  }
+
   const activity = await prisma.$transaction(async (tx) => {
     await tx.order.update({
       where: { id: order.id },
@@ -349,6 +359,73 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
         entityType: "ORDER",
         actor: "Operator",
         message: "Order customer, shipping or workflow fields updated.",
+        orderId: order.id,
+        createdAt: now,
+      },
+    });
+  });
+
+  revalidatePath(`/orders/${input.orderNumber}`);
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    timelineEntry: {
+      id: activity.id,
+      timestamp: formatTimestamp(activity.createdAt),
+      actor: activity.actor,
+      message: activity.message,
+    },
+  };
+}
+
+export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promise<OrderActionResult> {
+  if (!hasDatabaseUrl()) {
+    return {
+      ok: false,
+      error: "DATABASE_URL is not configured yet, so this archive change is only kept in local mock state.",
+    };
+  }
+
+  const prisma = getPrisma();
+  const now = new Date();
+  const order = await prisma.order.findUnique({
+    where: { orderNumber: input.orderNumber },
+    select: {
+      id: true,
+      carrier: true,
+      trackingNumber: true,
+    },
+  });
+
+  if (!order) {
+    return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  if ((input.action === "ship" || input.action === "complete") && (!order.carrier || !order.trackingNumber)) {
+    return { ok: false, error: "Carrier and tracking number are required before shipping or closing an order." };
+  }
+
+  const nextStatus =
+    input.action === "reopen" ? "IN_PRODUCTION" : input.action === "complete" ? "COMPLETED" : "SHIPPED";
+  const message =
+    input.action === "reopen"
+      ? "Order reopened and moved back to in production."
+      : input.action === "complete"
+        ? "Order completed and moved to closed archive."
+        : "Order marked as shipped.";
+
+  const activity = await prisma.$transaction(async (tx) => {
+    await tx.order.update({
+      where: { id: order.id },
+      data: { status: nextStatus },
+    });
+
+    return tx.activityLog.create({
+      data: {
+        entityType: "ORDER",
+        actor: "Operator",
+        message,
         orderId: order.id,
         createdAt: now,
       },

@@ -16,6 +16,7 @@ import {
   PackageCheck,
   Send,
   Truck,
+  Undo2,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -40,6 +41,7 @@ const editableOrderStatuses: OrderStatus[] = [
   "In production",
   "Ready to ship",
   "Shipped",
+  "Completed",
 ];
 const editablePriorities: OrderPriority[] = ["normal", "high", "urgent"];
 const editInputClass =
@@ -88,6 +90,15 @@ type OrderEditAction = (input: {
   shippingPostalCode: string;
   shippingCity: string;
   shippingCountry: string;
+}) => Promise<{
+  ok: boolean;
+  error?: string;
+  timelineEntry?: ActivityLogEntry;
+}>;
+
+type OrderArchiveAction = (input: {
+  orderNumber: string;
+  action: "ship" | "complete" | "reopen";
 }) => Promise<{
   ok: boolean;
   error?: string;
@@ -211,12 +222,14 @@ export function OrderDetailWorkspace({
   onStatusUpdate,
   onTrackingUpdate,
   onOrderEdit,
+  onArchiveUpdate,
 }: {
   order: Order;
   onPrintFileUpdate?: PrintFileUpdateAction;
   onStatusUpdate?: StatusUpdateAction;
   onTrackingUpdate?: TrackingUpdateAction;
   onOrderEdit?: OrderEditAction;
+  onArchiveUpdate?: OrderArchiveAction;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<OrderItem[]>(order.items);
@@ -273,6 +286,7 @@ export function OrderDetailWorkspace({
     });
   }, [items]);
   const splitAcrossManufacturers = productionGroups.length > 1;
+  const archived = status === "Shipped" || status === "Completed";
 
   function addTimelineEntry(message: string) {
     setTimeline((currentTimeline) => [
@@ -406,6 +420,11 @@ export function OrderDetailWorkspace({
       return;
     }
 
+    if ((status === "Shipped" || status === "Completed") && (!carrier.trim() || !trackingNumber.trim())) {
+      setEditMessage("Carrier and tracking number are required before shipping or closing an order.");
+      return;
+    }
+
     if (!onOrderEdit) {
       addTimelineEntry("Order customer, shipping or workflow fields updated.");
       setEditMessage("Order fields updated locally.");
@@ -443,6 +462,43 @@ export function OrderDetailWorkspace({
       setEditMessage("Order fields could not be saved to the database.");
     } finally {
       setSavingOrderEdit(false);
+    }
+  }
+
+  async function updateArchiveStatus(action: "ship" | "complete" | "reopen") {
+    if ((action === "ship" || action === "complete") && (!carrier.trim() || !trackingNumber.trim())) {
+      setTrackingMessage("Carrier and tracking number are required before shipping or closing an order.");
+      return;
+    }
+
+    const nextStatus: OrderStatus = action === "reopen" ? "In production" : action === "complete" ? "Completed" : "Shipped";
+    const fallbackMessage =
+      action === "reopen"
+        ? "Order reopened and moved back to in production."
+        : action === "complete"
+          ? "Order completed and moved to closed archive."
+          : "Order marked as shipped.";
+
+    setStatus(nextStatus);
+
+    if (!onArchiveUpdate) {
+      addTimelineEntry(fallbackMessage);
+      return;
+    }
+
+    setSavingOrderAction("status");
+    setTrackingMessage(null);
+    setSaveMessage(null);
+
+    try {
+      const result = await onArchiveUpdate({ orderNumber: order.id, action });
+      addActionResultToTimeline(result, fallbackMessage);
+      router.refresh();
+    } catch {
+      addTimelineEntry(fallbackMessage);
+      setSaveMessage("Order archive status could not be saved to the database.");
+    } finally {
+      setSavingOrderAction(null);
     }
   }
 
@@ -564,6 +620,11 @@ export function OrderDetailWorkspace({
             {splitAcrossManufacturers ? (
               <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-3 py-1 text-xs font-medium text-violet-100">
                 Split production
+              </span>
+            ) : null}
+            {archived ? (
+              <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-300">
+                Archived
               </span>
             ) : null}
           </div>
@@ -973,6 +1034,38 @@ export function OrderDetailWorkspace({
                 <PackageCheck className="h-4 w-4" />
                 {savingOrderAction === "status" ? "Saving..." : "Mark as ready for shipping"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => updateArchiveStatus("ship")}
+                disabled={savingOrderAction === "status" || status === "Shipped" || status === "Completed"}
+                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <Truck className="h-4 w-4" />
+                {savingOrderAction === "status" ? "Saving..." : "Mark as shipped"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => updateArchiveStatus("complete")}
+                disabled={savingOrderAction === "status" || status === "Completed"}
+                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <PackageCheck className="h-4 w-4" />
+                {savingOrderAction === "status" ? "Saving..." : "Close order"}
+              </Button>
+              {archived ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => updateArchiveStatus("reopen")}
+                  disabled={savingOrderAction === "status"}
+                  className="w-full justify-start rounded-xl border-amber-500/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15"
+                >
+                  <Undo2 className="h-4 w-4" />
+                  {savingOrderAction === "status" ? "Saving..." : "Reopen order"}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

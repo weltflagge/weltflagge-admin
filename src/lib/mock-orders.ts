@@ -36,6 +36,7 @@ export const statuses: OrderStatus[] = [
   "In production",
   "Ready to ship",
   "Shipped",
+  "Completed",
 ];
 
 export const statusConfig: Record<OrderStatus, StatusConfig> = {
@@ -88,6 +89,11 @@ export const statusConfig: Record<OrderStatus, StatusConfig> = {
     icon: Truck,
     chip: "border-slate-700 bg-slate-900 text-slate-300",
     accent: "from-slate-300 to-slate-500",
+  },
+  Completed: {
+    icon: CheckCircle2,
+    chip: "border-slate-700 bg-slate-950 text-slate-400",
+    accent: "from-slate-400 to-slate-600",
   },
 };
 

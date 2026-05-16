@@ -20,7 +20,7 @@ const statusMap: Record<string, OrderStatus> = {
   IN_PRODUCTION: "In production",
   READY_TO_SHIP: "Ready to ship",
   SHIPPED: "Shipped",
-  COMPLETED: "Shipped",
+  COMPLETED: "Completed",
   CANCELLED: "Customer reply needed",
 };
 

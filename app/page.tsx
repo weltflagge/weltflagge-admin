@@ -11,10 +11,10 @@ import { getOrdersWithFallback } from "@/src/lib/orders-db";
 export default async function DashboardPage() {
   await connection();
   const { orders, source } = await getOrdersWithFallback();
-  const openTasks = orders.filter((order) => order.status !== "Shipped").length;
+  const openTasks = orders.filter((order) => order.status !== "Shipped" && order.status !== "Completed").length;
   const critical = orders.filter((order) => order.priority === "urgent").length;
   const ready = orders.filter((order) => order.status === "Ready to ship").length;
-  const activeOrders = orders.filter((order) => order.status !== "Shipped").slice(0, 4);
+  const activeOrders = orders.filter((order) => order.status !== "Shipped" && order.status !== "Completed").slice(0, 4);
 
   return (
     <div className="space-y-6">

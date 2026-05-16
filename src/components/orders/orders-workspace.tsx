@@ -17,6 +17,7 @@ type SourceFilter = "all" | OrderSource;
 type PriorityFilter = "all" | OrderPriority;
 type PaymentFilter = "all" | Order["paymentStatus"];
 type SortKey = "newest" | "deadline" | "priority" | "amount";
+type ScopeFilter = "active" | "shipped" | "closed" | "all";
 
 const sourceOptions = Object.entries(sourceLabels) as Array<[OrderSource, string]>;
 const priorityOptions = Object.entries(priorityLabels) as Array<[OrderPriority, string]>;
@@ -88,6 +89,7 @@ function FilterButton({
 
 export function OrdersWorkspace({ orders }: { orders: Order[] }) {
   const [search, setSearch] = useState("");
+  const [scope, setScope] = useState<ScopeFilter>("active");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [priority, setPriority] = useState<PriorityFilter>("all");
@@ -99,6 +101,11 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
     const result = orders.filter((order) => {
       const matchesSearch = includesSearch(order, search);
       const matchesStatus = status === "all" || order.status === status;
+      const matchesScope =
+        scope === "all" ||
+        (scope === "active" && order.status !== "Shipped" && order.status !== "Completed") ||
+        (scope === "shipped" && order.status === "Shipped") ||
+        (scope === "closed" && order.status === "Completed");
       const matchesSource = source === "all" || order.source === source;
       const matchesPriority = priority === "all" || order.priority === priority;
       const matchesPayment = payment === "all" || order.paymentStatus === payment;
@@ -111,6 +118,7 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
 
       return (
         matchesSearch &&
+        matchesScope &&
         matchesStatus &&
         matchesSource &&
         matchesPriority &&
@@ -134,10 +142,11 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
 
       return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
     });
-  }, [needsActionOnly, orders, payment, priority, search, sort, source, status]);
+  }, [needsActionOnly, orders, payment, priority, scope, search, sort, source, status]);
 
   const hasActiveFilters =
     search ||
+    scope !== "active" ||
     status !== "all" ||
     source !== "all" ||
     priority !== "all" ||
@@ -147,6 +156,7 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
 
   function resetFilters() {
     setSearch("");
+    setScope("active");
     setStatus("all");
     setSource("all");
     setPriority("all");
@@ -200,6 +210,21 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
           </div>
 
           <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <FilterButton active={scope === "active"} onClick={() => setScope("active")}>
+                Active
+              </FilterButton>
+              <FilterButton active={scope === "shipped"} onClick={() => setScope("shipped")}>
+                Shipped
+              </FilterButton>
+              <FilterButton active={scope === "closed"} onClick={() => setScope("closed")}>
+                Closed
+              </FilterButton>
+              <FilterButton active={scope === "all"} onClick={() => setScope("all")}>
+                All
+              </FilterButton>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               <FilterButton active={status === "all"} onClick={() => setStatus("all")}>
                 All statuses

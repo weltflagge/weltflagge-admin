@@ -12,7 +12,8 @@ export type OrderStatus =
   | "Production ready"
   | "In production"
   | "Ready to ship"
-  | "Shipped";
+  | "Shipped"
+  | "Completed";
 
 export type OrderPriority = "normal" | "high" | "urgent";
 

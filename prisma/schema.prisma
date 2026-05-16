@@ -1,0 +1,279 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderSource {
+  WOOCOMMERCE_WELTFLAGGE
+  WOOCOMMERCE_PARTNER
+  EBAY
+  EMAIL
+}
+
+enum OrderStatus {
+  NEW
+  PAYMENT_OPEN
+  PRINT_FILES_MISSING
+  PRINT_FILES_REVIEW
+  CUSTOMER_REPLY_NEEDED
+  APPROVAL_MISSING
+  PRODUCTION_READY
+  IN_PRODUCTION
+  READY_TO_SHIP
+  SHIPPED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderPriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum PaymentStatus {
+  PAID
+  OPEN
+  REFUNDED
+  CANCELLED
+}
+
+enum PrintFileStatus {
+  MISSING
+  RECEIVED
+  APPROVED
+  PROBLEM
+}
+
+enum ManufacturerCode {
+  OPINION
+  LOGO_PL
+  MPH_MACIEJ
+}
+
+enum OrderItemProductionStatus {
+  NOT_ROUTED
+  DRAFT
+  SENT
+  CONFIRMED
+  IN_PRODUCTION
+  PRODUCED
+  DELIVERED
+}
+
+enum ProductionBatchStatus {
+  DRAFT
+  SENT_TO_MANUFACTURER
+  CONFIRMED
+  IN_PRODUCTION
+  DELIVERED
+  CANCELLED
+}
+
+enum ActivityEntityType {
+  ORDER
+  ORDER_ITEM
+  PRODUCTION_BATCH
+}
+
+model Order {
+  id                String        @id @default(cuid())
+  orderNumber       String        @unique
+  source            OrderSource
+  externalId        String
+  receivedAt        DateTime
+  deadlineAt        DateTime?
+  customerName      String
+  customerEmail     String
+  customerPhone     String?
+  amountCents       Int
+  currency          String        @default("EUR")
+  paymentStatus     PaymentStatus
+  status            OrderStatus
+  priority          OrderPriority @default(NORMAL)
+  carrier           String?
+  trackingNumber    String?
+  internalNotes     String?
+  rawPayload        Json?
+  billingAddress    Address?      @relation("OrderBillingAddress", fields: [billingAddressId], references: [id])
+  billingAddressId  String?
+  shippingAddress   Address?      @relation("OrderShippingAddress", fields: [shippingAddressId], references: [id])
+  shippingAddressId String?
+  items             OrderItem[]
+  activityLogs      ActivityLog[] @relation("OrderActivityLogs")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([source, externalId])
+  @@index([status, priority])
+  @@index([receivedAt])
+  @@index([deadlineAt])
+}
+
+model Address {
+  id             String   @id @default(cuid())
+  company        String?
+  name           String?
+  street         String?
+  postalCode     String?
+  city           String?
+  country        String?
+  billingOrders  Order[]  @relation("OrderBillingAddress")
+  shippingOrders Order[]  @relation("OrderShippingAddress")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model OrderItem {
+  id              String                    @id @default(cuid())
+  order           Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId         String
+  lineNumber      Int
+  productName     String
+  sku             String?
+  material        String?
+  size            String?
+  quantity        Int
+  finishing       String?
+  unitAmountCents Int?
+  notes           String?
+  printFile       PrintFile?
+  productionState OrderItemProductionState?
+  batchItems      ProductionBatchItem[]
+  activityLogs    ActivityLog[]             @relation("OrderItemActivityLogs")
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([orderId, lineNumber])
+  @@index([sku])
+  @@index([orderId, sku])
+}
+
+model PrintFile {
+  id          String          @id @default(cuid())
+  orderItem   OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId String          @unique
+  status      PrintFileStatus @default(MISSING)
+  fileName    String?
+  fileUrl     String?
+  source      String?
+  checkedAt   DateTime?
+  checkedBy   String?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status])
+}
+
+model Manufacturer {
+  id               String                     @id @default(cuid())
+  code             ManufacturerCode           @unique
+  name             String
+  contactEmail     String?
+  specialty        String?
+  exportFormat     String?
+  routingRules     ManufacturerRoutingRule[]
+  productionStates OrderItemProductionState[]
+  batches          ProductionBatch[]
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+}
+
+model ManufacturerRoutingRule {
+  id              String       @id @default(cuid())
+  manufacturer    Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+  manufacturerId  String
+  name            String
+  productPattern  String?
+  skuPattern      String?
+  materialPattern String?
+  priority        Int          @default(100)
+  active          Boolean      @default(true)
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([active, priority])
+}
+
+model OrderItemProductionState {
+  id               String                    @id @default(cuid())
+  orderItem        OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId      String                    @unique
+  manufacturer     Manufacturer?             @relation(fields: [manufacturerId], references: [id])
+  manufacturerId   String?
+  status           OrderItemProductionStatus @default(NOT_ROUTED)
+  currentBatch     ProductionBatch?          @relation(fields: [currentBatchId], references: [id])
+  currentBatchId   String?
+  routingReason    String?
+  manuallyAssigned Boolean                   @default(false)
+  sentAt           DateTime?
+  confirmedAt      DateTime?
+  producedAt       DateTime?
+  deliveredAt      DateTime?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@index([status])
+  @@index([manufacturerId])
+}
+
+model ProductionBatch {
+  id             String                     @id @default(cuid())
+  batchNumber    String                     @unique
+  manufacturer   Manufacturer               @relation(fields: [manufacturerId], references: [id])
+  manufacturerId String
+  date           DateTime
+  status         ProductionBatchStatus      @default(DRAFT)
+  exportFileName String?
+  sentAt         DateTime?
+  confirmedAt    DateTime?
+  notes          String?
+  items          ProductionBatchItem[]
+  currentStates  OrderItemProductionState[]
+  activityLogs   ActivityLog[]              @relation("ProductionBatchActivityLogs")
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@index([manufacturerId, status])
+  @@index([date])
+}
+
+model ProductionBatchItem {
+  id             String          @id @default(cuid())
+  batch          ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchId        String
+  orderItem      OrderItem       @relation(fields: [orderItemId], references: [id])
+  orderItemId    String
+  position       Int
+  exportSnapshot Json?
+  createdAt      DateTime        @default(now())
+
+  @@unique([batchId, orderItemId])
+  @@unique([batchId, position])
+  @@index([orderItemId])
+}
+
+model ActivityLog {
+  id                String             @id @default(cuid())
+  entityType        ActivityEntityType
+  message           String
+  actor             String
+  metadata          Json?
+  order             Order?             @relation("OrderActivityLogs", fields: [orderId], references: [id], onDelete: Cascade)
+  orderId           String?
+  orderItem         OrderItem?         @relation("OrderItemActivityLogs", fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId       String?
+  productionBatch   ProductionBatch?   @relation("ProductionBatchActivityLogs", fields: [productionBatchId], references: [id], onDelete: Cascade)
+  productionBatchId String?
+  createdAt         DateTime           @default(now())
+
+  @@index([entityType, createdAt])
+  @@index([orderId, createdAt])
+  @@index([orderItemId, createdAt])
+  @@index([productionBatchId, createdAt])
+}

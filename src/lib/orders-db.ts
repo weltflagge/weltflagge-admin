@@ -1,0 +1,163 @@
+import type { Order, OrderItemProduction, OrderItemProductionStatus, OrderSource, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import { getPrisma, hasDatabaseUrl } from "./prisma";
+
+const sourceMap: Record<string, OrderSource> = {
+  WOOCOMMERCE_WELTFLAGGE: "woocommerce-weltflagge",
+  WOOCOMMERCE_PARTNER: "woocommerce-partner",
+  EBAY: "ebay",
+  EMAIL: "email",
+};
+
+const statusMap: Record<string, OrderStatus> = {
+  NEW: "New",
+  PAYMENT_OPEN: "Payment open",
+  PRINT_FILES_MISSING: "Print files missing",
+  PRINT_FILES_REVIEW: "Print files review",
+  CUSTOMER_REPLY_NEEDED: "Customer reply needed",
+  APPROVAL_MISSING: "Approval missing",
+  PRODUCTION_READY: "Production ready",
+  IN_PRODUCTION: "In production",
+  READY_TO_SHIP: "Ready to ship",
+  SHIPPED: "Shipped",
+  COMPLETED: "Shipped",
+  CANCELLED: "Customer reply needed",
+};
+
+const printFileStatusMap: Record<string, PrintFileStatus> = {
+  MISSING: "missing",
+  RECEIVED: "received",
+  APPROVED: "approved",
+  PROBLEM: "problem",
+};
+
+const productionStatusMap: Record<string, OrderItemProductionStatus> = {
+  NOT_ROUTED: "not_routed",
+  DRAFT: "draft",
+  SENT: "sent",
+  CONFIRMED: "confirmed",
+  IN_PRODUCTION: "confirmed",
+  PRODUCED: "produced",
+  DELIVERED: "produced",
+};
+
+const manufacturerMap: Record<string, OrderItemProduction["manufacturer"]> = {
+  OPINION: "opinion",
+  LOGO_PL: "logo_pl",
+  MPH_MACIEJ: "mph_maciej",
+};
+
+function formatDate(date: Date | null) {
+  return date ? date.toISOString().slice(0, 10) : "-";
+}
+
+function formatTimestamp(date: Date) {
+  return new Intl.DateTimeFormat("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatAmount(amountCents: number, currency: string) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency,
+  }).format(amountCents / 100);
+}
+
+function mapAddress(address: {
+  company: string | null;
+  name: string | null;
+  street: string | null;
+  postalCode: string | null;
+  city: string | null;
+  country: string | null;
+} | null) {
+  return {
+    company: address?.company ?? "-",
+    name: address?.name ?? "-",
+    street: address?.street ?? "-",
+    postalCode: address?.postalCode ?? "",
+    city: address?.city ?? "-",
+    country: address?.country ?? "-",
+  };
+}
+
+export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order | null> {
+  if (!hasDatabaseUrl()) {
+    return null;
+  }
+
+  const prisma = getPrisma();
+  const order = await prisma.order.findUnique({
+    where: { orderNumber },
+    include: {
+      billingAddress: true,
+      shippingAddress: true,
+      items: {
+        include: {
+          printFile: true,
+          productionState: {
+            include: {
+              manufacturer: true,
+            },
+          },
+        },
+        orderBy: { lineNumber: "asc" },
+      },
+      activityLogs: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      },
+    },
+  });
+
+  if (!order) {
+    return null;
+  }
+
+  return {
+    id: order.orderNumber,
+    source: sourceMap[order.source] ?? "email",
+    externalId: order.externalId,
+    date: formatDate(order.receivedAt),
+    customer: order.customerName,
+    email: order.customerEmail,
+    phone: order.customerPhone ?? "-",
+    billingAddress: mapAddress(order.billingAddress),
+    shippingAddress: mapAddress(order.shippingAddress),
+    items: order.items.map((item) => ({
+      name: item.productName,
+      sku: item.sku ?? `line-${item.lineNumber}`,
+      size: item.size ?? "-",
+      quantity: item.quantity,
+      printFile: {
+        status: printFileStatusMap[item.printFile?.status ?? "MISSING"] ?? "missing",
+        fileName: item.printFile?.fileName ?? "",
+        fileUrl: item.printFile?.fileUrl ?? undefined,
+      },
+      production: {
+        manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
+        batchId: item.productionState?.currentBatchId ?? undefined,
+        status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
+      },
+    })),
+    amount: formatAmount(order.amountCents, order.currency),
+    paymentStatus: order.paymentStatus === "PAID" ? "Paid" : "Open",
+    artworkStatus: "Druckdaten",
+    status: statusMap[order.status] ?? "New",
+    carrier: order.carrier ?? "-",
+    trackingNumber: order.trackingNumber ?? "",
+    priority: order.priority.toLowerCase() as Order["priority"],
+    deadline: formatDate(order.deadlineAt),
+    notes: order.internalNotes ?? "-",
+    timeline: order.activityLogs.map((entry) => ({
+      id: entry.id,
+      timestamp: formatTimestamp(entry.createdAt),
+      actor: entry.actor,
+      message: entry.message,
+    })),
+  };
+}

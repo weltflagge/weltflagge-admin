@@ -35,6 +35,7 @@ const defaultInitialBatchStatus: BatchStatusMap = {
   opinion: "Draft",
   logo_pl: "Draft",
   mph_maciej: "Draft",
+  wmd: "Draft",
 };
 
 function Panel({

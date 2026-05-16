@@ -10,6 +10,7 @@ const manufacturerByDbCode: Record<string, ActiveManufacturer> = {
   OPINION: "opinion",
   LOGO_PL: "logo_pl",
   MPH_MACIEJ: "mph_maciej",
+  WMD: "wmd",
 };
 
 const printFileStatusMap: Record<string, PrintFileStatus> = {
@@ -17,6 +18,12 @@ const printFileStatusMap: Record<string, PrintFileStatus> = {
   RECEIVED: "received",
   APPROVED: "approved",
   PROBLEM: "problem",
+};
+
+const printFileSideMap: Record<string, "front" | "back" | "general"> = {
+  FRONT: "front",
+  BACK: "back",
+  GENERAL: "general",
 };
 
 const productionStatusMap: Record<string, OrderItemProductionStatus> = {
@@ -41,6 +48,7 @@ const defaultBatchStatus: BatchStatusMap = {
   opinion: "Draft",
   logo_pl: "Draft",
   mph_maciej: "Draft",
+  wmd: "Draft",
 };
 
 function formatDate(date: Date | null) {
@@ -62,6 +70,10 @@ function inferManufacturer(row: {
     return { manufacturer: "mph_maciej", reason: "Beachflags route to MPH - Maciej." };
   }
 
+  if (haystack.includes("roll-up") || haystack.includes("rollup") || haystack.includes("x-banner") || haystack.includes("xbanner")) {
+    return { manufacturer: "wmd", reason: "Roll-Up and X-Banner products route to WMD." };
+  }
+
   if (haystack.includes("fahne") || haystack.includes("flag") || haystack.includes("banner") || haystack.includes("mesh")) {
     return { manufacturer: "opinion", reason: "Flags, mesh fabric and banners route to Opinion." };
   }
@@ -78,7 +90,7 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
   const items = await prisma.orderItem.findMany({
     include: {
       order: true,
-      printFile: true,
+      printFiles: true,
       productionState: {
         include: {
           manufacturer: true,
@@ -95,6 +107,7 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
       ? manufacturerByDbCode[item.productionState.manufacturer.code] ?? inferred.manufacturer
       : inferred.manufacturer;
     const batch = item.productionState?.currentBatch;
+    const primaryPrintFile = item.printFiles.find((file) => file.side === "FRONT") ?? item.printFiles[0];
 
     return {
       id: item.id,
@@ -108,10 +121,16 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
       quantity: item.quantity,
       finishing: item.finishing ?? "-",
       printFile: {
-        status: printFileStatusMap[item.printFile?.status ?? "MISSING"] ?? "missing",
-        fileName: item.printFile?.fileName ?? "",
-        fileUrl: item.printFile?.fileUrl ?? undefined,
+        status: printFileStatusMap[primaryPrintFile?.status ?? "MISSING"] ?? "missing",
+        fileName: primaryPrintFile?.fileName ?? "",
+        fileUrl: primaryPrintFile?.fileUrl ?? undefined,
       },
+      printFiles: item.printFiles.map((printFile) => ({
+        status: printFileStatusMap[printFile.status] ?? "missing",
+        fileName: printFile.fileName ?? "",
+        fileUrl: printFile.fileUrl ?? undefined,
+        side: printFileSideMap[printFile.side] ?? "front",
+      })),
       productionStatus: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
       batchId: batch?.batchNumber ?? undefined,
       deadline: formatDate(item.order.deadlineAt),

@@ -22,12 +22,20 @@ export const manufacturers: Manufacturer[] = [
     specialty: "Beachflags",
     exportFormat: "Beachflag order table",
   },
+  {
+    id: "wmd",
+    name: "WMD",
+    contact: "produktion@wmd.example",
+    specialty: "Roll-Up and X-Banner systems",
+    exportFormat: "Display system order table",
+  },
 ];
 
 export const manufacturerLabels: Record<ManufacturerId, string> = {
   opinion: "Opinion",
   logo_pl: "Logo.pl",
   mph_maciej: "MPH - Maciej",
+  wmd: "WMD",
   needs_review: "Needs review",
 };
 

@@ -93,9 +93,10 @@ export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Pro
 
   const activity = await prisma.$transaction(async (tx) => {
     await tx.printFile.upsert({
-      where: { orderItemId: orderItem.id },
+      where: { orderItemId_side: { orderItemId: orderItem.id, side: "FRONT" } },
       create: {
         orderItemId: orderItem.id,
+        side: "FRONT",
         fileName: fileName || null,
         status,
         checkedAt: now,

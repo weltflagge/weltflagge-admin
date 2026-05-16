@@ -48,10 +48,17 @@ enum PrintFileStatus {
   PROBLEM
 }
 
+enum PrintFileSide {
+  FRONT
+  BACK
+  GENERAL
+}
+
 enum ManufacturerCode {
   OPINION
   LOGO_PL
   MPH_MACIEJ
+  WMD
 }
 
 enum OrderItemProductionStatus {
@@ -140,7 +147,7 @@ model OrderItem {
   finishing       String?
   unitAmountCents Int?
   notes           String?
-  printFile       PrintFile?
+  printFiles      PrintFile[]
   productionState OrderItemProductionState?
   batchItems      ProductionBatchItem[]
   activityLogs    ActivityLog[]             @relation("OrderItemActivityLogs")
@@ -155,7 +162,8 @@ model OrderItem {
 model PrintFile {
   id          String          @id @default(cuid())
   orderItem   OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  orderItemId String          @unique
+  orderItemId String
+  side        PrintFileSide   @default(FRONT)
   status      PrintFileStatus @default(MISSING)
   fileName    String?
   fileUrl     String?
@@ -166,6 +174,7 @@ model PrintFile {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
+  @@unique([orderItemId, side])
   @@index([status])
 }
 

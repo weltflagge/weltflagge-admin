@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getCatalogEntry, getCatalogMaterial, printModeLabels, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 import type { OrderPriority, OrderSource, PrintFileStatus } from "@/src/types/order";
 
@@ -29,7 +30,12 @@ type CreateOrderInput = {
     quantity: string;
     finishing: string;
     printFileName: string;
+    printFileBackName: string;
     printFileStatus: PrintFileStatus;
+    productType: ProductTypeId;
+    materialId: string;
+    printMode: PrintMode;
+    shape: string;
   }>;
   itemName: string;
   sku: string;
@@ -66,6 +72,13 @@ const printStatusMap: Record<PrintFileStatus, "MISSING" | "RECEIVED" | "APPROVED
   problem: "PROBLEM",
 };
 
+const manufacturerDbCodeByUiId = {
+  opinion: "OPINION",
+  logo_pl: "LOGO_PL",
+  mph_maciej: "MPH_MACIEJ",
+  wmd: "WMD",
+} as const;
+
 function parseAmountCents(value: string) {
   const normalized = value.replace("EUR", "").replace(/\s/g, "").replace(".", "").replace(",", ".");
   const amount = Number(normalized);
@@ -79,7 +92,7 @@ function parseAmountCents(value: string) {
 
 function inferInitialStatus(
   input: CreateOrderInput,
-  items: Array<{ printFileName: string; printFileStatus: PrintFileStatus }>
+  items: Array<{ printFileName: string; printFileBackName: string; printFileStatus: PrintFileStatus; printMode: PrintMode }>
 ) {
   if (input.paymentStatus === "Open") {
     return "PAYMENT_OPEN" as const;
@@ -89,7 +102,14 @@ function inferInitialStatus(
     return "CUSTOMER_REPLY_NEEDED" as const;
   }
 
-  if (items.some((item) => item.printFileStatus === "missing" || !item.printFileName.trim())) {
+  if (
+    items.some(
+      (item) =>
+        item.printFileStatus === "missing" ||
+        !item.printFileName.trim() ||
+        (item.printMode === "double_sided" && !item.printFileBackName.trim())
+    )
+  ) {
     return "PRINT_FILES_MISSING" as const;
   }
 
@@ -109,7 +129,7 @@ export async function createManualOrder(input: CreateOrderInput): Promise<Create
   const externalId = input.externalId.trim() || `manual-${orderNumber}`;
   const customerName = input.customerName.trim();
   const customerEmail = input.customerEmail.trim();
-  const submittedItems = input.items?.length
+  const submittedItems: CreateOrderInput["items"] = input.items?.length
     ? input.items
     : [
         {
@@ -120,18 +140,30 @@ export async function createManualOrder(input: CreateOrderInput): Promise<Create
           quantity: input.quantity,
           finishing: input.finishing,
           printFileName: input.printFileName,
+          printFileBackName: "",
           printFileStatus: input.printFileStatus,
+          productType: "flag",
+          materialId: "fahnenstoff-115",
+          printMode: "single_sided",
+          shape: "",
         },
       ];
   const normalizedItems = submittedItems.map((item, index) => ({
+    productType: item.productType,
+    materialId: item.materialId,
+    printMode: item.printMode,
+    shape: item.shape.trim(),
     lineNumber: index + 1,
-    productName: item.itemName.trim(),
+    productName: item.itemName.trim() || getCatalogEntry(item.productType).label,
     sku: item.sku.trim(),
-    material: item.material.trim(),
+    material: getCatalogMaterial(item.productType, item.materialId).label,
     size: item.size.trim(),
     quantity: Number(item.quantity),
-    finishing: item.finishing.trim(),
+    finishing: [item.finishing.trim(), item.shape.trim() ? `Form: ${item.shape.trim()}` : "", printModeLabels[item.printMode]]
+      .filter(Boolean)
+      .join(" | "),
     printFileName: item.printFileName.trim(),
+    printFileBackName: item.printFileBackName.trim(),
     printFileStatus: item.printFileStatus,
   }));
 
@@ -155,6 +187,20 @@ export async function createManualOrder(input: CreateOrderInput): Promise<Create
 
   const deadlineAt = input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null;
   const amountCents = parseAmountCents(input.amount);
+  const manufacturers = await Promise.all(
+    [...new Set(normalizedItems.map((item) => getCatalogMaterial(item.productType, item.materialId).manufacturer))].map((manufacturer) =>
+      prisma.manufacturer.upsert({
+        where: { code: manufacturerDbCodeByUiId[manufacturer] },
+        update: {},
+        create: {
+          code: manufacturerDbCodeByUiId[manufacturer],
+          name: manufacturer === "opinion" ? "Opinion" : manufacturer === "logo_pl" ? "Logo.pl" : manufacturer === "mph_maciej" ? "MPH - Maciej" : "WMD",
+          exportFormat: `${manufacturer}-xlsx`,
+        },
+      })
+    )
+  );
+  const manufacturerByCode = new Map(manufacturers.map((manufacturer) => [manufacturer.code, manufacturer]));
 
   await prisma.order.create({
     data: {
@@ -200,17 +246,31 @@ export async function createManualOrder(input: CreateOrderInput): Promise<Create
           size: item.size || null,
           quantity: item.quantity,
           finishing: item.finishing || null,
-          printFile: {
-            create: {
-              fileName: item.printFileName || null,
-              status: item.printFileName ? printStatusMap[item.printFileStatus] : "MISSING",
-              source: "manual",
-            },
+          printFiles: {
+            create: [
+              {
+                side: "FRONT" as const,
+                fileName: item.printFileName || null,
+                status: item.printFileName ? printStatusMap[item.printFileStatus] : "MISSING",
+                source: "manual",
+              },
+              ...(item.printMode === "double_sided"
+                ? [
+                    {
+                      side: "BACK" as const,
+                      fileName: item.printFileBackName || null,
+                      status: item.printFileBackName ? printStatusMap[item.printFileStatus] : "MISSING",
+                      source: "manual",
+                    },
+                  ]
+                : []),
+            ],
           },
           productionState: {
             create: {
-              status: "NOT_ROUTED",
-              routingReason: "Manual order: production routing pending.",
+              status: "DRAFT",
+              manufacturerId: manufacturerByCode.get(manufacturerDbCodeByUiId[getCatalogMaterial(item.productType, item.materialId).manufacturer])?.id,
+              routingReason: `Catalog routing: ${getCatalogEntry(item.productType).label} / ${getCatalogMaterial(item.productType, item.materialId).label}.`,
             },
           },
         })),

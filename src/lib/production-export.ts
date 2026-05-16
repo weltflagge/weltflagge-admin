@@ -44,10 +44,23 @@ export const productionExportSchemas: Record<ActiveManufacturer, ProductionExpor
     { key: "size", label: "Size", getValue: (row) => row.size },
     { key: "quantity", label: "Qty", getValue: (row) => row.quantity },
     { key: "finishing", label: "Pole / tunnel", getValue: (row) => row.finishing },
-    { key: "printFile", label: "Artwork file", getValue: (row) => row.printFile.fileName || "missing" },
+    { key: "printFile", label: "Artwork file front", getValue: (row) => row.printFile.fileName || "missing" },
+    { key: "printFileBack", label: "Artwork file back", getValue: (row) => row.printFiles?.find((file) => file.side === "back")?.fileName || "" },
     { key: "printStatus", label: "Artwork status", getValue: (row) => row.printFile.status },
     { key: "deadline", label: "Needed by", getValue: (row) => row.deadline },
     { key: "notes", label: "Production note", getValue: (row) => row.notes },
+  ],
+  wmd: [
+    { key: "orderId", label: "Order", getValue: (row) => row.orderId },
+    { key: "customer", label: "Customer", getValue: (row) => row.customer },
+    { key: "product", label: "System", getValue: (row) => row.productName },
+    { key: "size", label: "Size", getValue: (row) => row.size },
+    { key: "quantity", label: "Qty", getValue: (row) => row.quantity },
+    { key: "material", label: "Material", getValue: (row) => row.material },
+    { key: "printFile", label: "Artwork file", getValue: (row) => row.printFile.fileName || "missing" },
+    { key: "printStatus", label: "Artwork status", getValue: (row) => row.printFile.status },
+    { key: "deadline", label: "Needed by", getValue: (row) => row.deadline },
+    { key: "notes", label: "Notes", getValue: (row) => row.notes },
   ],
 };
 
@@ -110,6 +123,33 @@ export function validateProductionRowsForExport(
         rowId: row.id,
         severity: "blocker",
         reason: "Print file is received but not approved",
+      });
+    }
+
+    const isDoubleSided = row.finishing.toLowerCase().includes("beidseitig");
+    const backPrintFile = row.printFiles?.find((file) => file.side === "back");
+
+    if (isDoubleSided && !backPrintFile?.fileName.trim()) {
+      issues.push({
+        rowId: row.id,
+        severity: "blocker",
+        reason: "Back-side print file is missing",
+      });
+    }
+
+    if (isDoubleSided && backPrintFile?.status === "problem") {
+      issues.push({
+        rowId: row.id,
+        severity: "blocker",
+        reason: "Back-side print file has a problem",
+      });
+    }
+
+    if (isDoubleSided && backPrintFile?.status === "received" && !options.allowReceivedFiles) {
+      issues.push({
+        rowId: row.id,
+        severity: "blocker",
+        reason: "Back-side print file is received but not approved",
       });
     }
   }

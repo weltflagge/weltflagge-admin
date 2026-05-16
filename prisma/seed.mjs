@@ -33,6 +33,13 @@ const manufacturers = [
     specialty: "Beachflags",
     exportFormat: "mph-maciej-xlsx",
   },
+  {
+    code: "WMD",
+    name: "WMD",
+    contactEmail: "produktion@wmd.example",
+    specialty: "Roll-Up and X-Banner systems",
+    exportFormat: "wmd-xlsx",
+  },
 ];
 
 const orders = [
@@ -230,7 +237,7 @@ async function main() {
           sku: item.sku,
           size: item.size,
           quantity: item.quantity,
-          printFile: { create: item.printFile },
+          printFiles: { create: [{ ...item.printFile, side: "FRONT" }] },
           productionState: {
             create: {
               status: item.production.status,

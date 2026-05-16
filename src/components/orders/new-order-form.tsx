@@ -7,6 +7,7 @@ import { ArrowLeft, PackagePlus, PlusCircle, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
+import { getCatalogEntry, getCatalogMaterial, printModeLabels, productCatalog, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import type { OrderPriority, OrderSource, PrintFileStatus } from "@/src/types/order";
 
 type CreateOrderAction = (input: {
@@ -46,7 +47,12 @@ type ManualOrderItem = {
   quantity: string;
   finishing: string;
   printFileName: string;
+  printFileBackName: string;
   printFileStatus: PrintFileStatus;
+  productType: ProductTypeId;
+  materialId: string;
+  printMode: PrintMode;
+  shape: string;
 };
 
 const inputClass =
@@ -62,7 +68,32 @@ function createBlankItem(): ManualOrderItem {
     quantity: "1",
     finishing: "",
     printFileName: "",
+    printFileBackName: "",
     printFileStatus: "missing",
+    productType: "flag",
+    materialId: "fahnenstoff-115",
+    printMode: "single_sided",
+    shape: "",
+  };
+}
+
+function normalizeItemForCatalog(item: ManualOrderItem, patch: Partial<ManualOrderItem>) {
+  const nextItem = { ...item, ...patch };
+  const entry = getCatalogEntry(nextItem.productType);
+  const material = entry.materials.some((option) => option.id === nextItem.materialId)
+    ? getCatalogMaterial(nextItem.productType, nextItem.materialId)
+    : entry.materials[0];
+  const printMode = material.allowedPrintModes.includes(nextItem.printMode) ? nextItem.printMode : material.allowedPrintModes[0];
+  const shape = entry.shapes?.includes(nextItem.shape) ? nextItem.shape : entry.shapes?.[0] ?? "";
+  const size = entry.sizeMode === "preset" ? entry.sizes?.[shape]?.[0] ?? nextItem.size : nextItem.size;
+
+  return {
+    ...nextItem,
+    materialId: material.id,
+    printMode,
+    shape,
+    size,
+    printFileBackName: printMode === "double_sided" ? nextItem.printFileBackName : "",
   };
 }
 
@@ -121,7 +152,7 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
   const [message, setMessage] = useState<string | null>(null);
 
   function updateItem(itemId: string, patch: Partial<ManualOrderItem>) {
-    setItems((currentItems) => currentItems.map((item) => (item.id === itemId ? { ...item, ...patch } : item)));
+    setItems((currentItems) => currentItems.map((item) => (item.id === itemId ? normalizeItemForCatalog(item, patch) : item)));
   }
 
   function addItem() {
@@ -289,6 +320,19 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                         className={inputClass}
                       />
                     </Field>
+                    <Field label="Product type">
+                      <select
+                        value={item.productType}
+                        onChange={(event) => updateItem(item.id, { productType: event.target.value as ProductTypeId })}
+                        className={inputClass}
+                      >
+                        {productCatalog.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
                     <Field label="SKU">
                       <input value={item.sku} onChange={(event) => updateItem(item.id, { sku: event.target.value })} className={inputClass} />
                     </Field>
@@ -302,20 +346,51 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                       />
                     </Field>
                     <Field label="Material">
-                      <input
-                        value={item.material}
-                        onChange={(event) => updateItem(item.id, { material: event.target.value })}
-                        placeholder="Normal Stoff, Mesh, 155g..."
-                        className={inputClass}
-                      />
+                      <select value={item.materialId} onChange={(event) => updateItem(item.id, { materialId: event.target.value })} className={inputClass}>
+                        {getCatalogEntry(item.productType).materials.map((material) => (
+                          <option key={material.id} value={material.id}>
+                            {material.label}
+                          </option>
+                        ))}
+                      </select>
                     </Field>
+                    {getCatalogEntry(item.productType).shapes ? (
+                      <Field label="Shape">
+                        <select value={item.shape} onChange={(event) => updateItem(item.id, { shape: event.target.value })} className={inputClass}>
+                          {getCatalogEntry(item.productType).shapes?.map((shape) => (
+                            <option key={shape} value={shape}>
+                              {shape}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    ) : null}
                     <Field label="Size">
-                      <input
-                        value={item.size}
-                        onChange={(event) => updateItem(item.id, { size: event.target.value })}
-                        placeholder="120 x 300 cm"
-                        className={inputClass}
-                      />
+                      {getCatalogEntry(item.productType).sizeMode === "preset" ? (
+                        <select value={item.size} onChange={(event) => updateItem(item.id, { size: event.target.value })} className={inputClass}>
+                          {(getCatalogEntry(item.productType).sizes?.[item.shape] ?? []).map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={item.size}
+                          onChange={(event) => updateItem(item.id, { size: event.target.value })}
+                          placeholder="120 x 300 cm"
+                          className={inputClass}
+                        />
+                      )}
+                    </Field>
+                    <Field label="Print mode">
+                      <select value={item.printMode} onChange={(event) => updateItem(item.id, { printMode: event.target.value as PrintMode })} className={inputClass}>
+                        {getCatalogMaterial(item.productType, item.materialId).allowedPrintModes.map((mode) => (
+                          <option key={mode} value={mode}>
+                            {printModeLabels[mode]}
+                          </option>
+                        ))}
+                      </select>
                     </Field>
                     <Field label="Finishing">
                       <input
@@ -325,7 +400,7 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Print file name">
+                    <Field label={item.printMode === "double_sided" ? "Print file front" : "Print file name"}>
                       <input
                         value={item.printFileName}
                         onChange={(event) => updateItem(item.id, { printFileName: event.target.value })}
@@ -333,6 +408,16 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                         className={inputClass}
                       />
                     </Field>
+                    {item.printMode === "double_sided" ? (
+                      <Field label="Print file back">
+                        <input
+                          value={item.printFileBackName}
+                          onChange={(event) => updateItem(item.id, { printFileBackName: event.target.value })}
+                          placeholder="WF-xxxxx_back.pdf"
+                          className={inputClass}
+                        />
+                      </Field>
+                    ) : null}
                     <Field label="Print file status">
                       <select
                         value={item.printFileStatus}
@@ -346,6 +431,9 @@ export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderActi
                       </select>
                     </Field>
                   </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Manufacturer: {getCatalogMaterial(item.productType, item.materialId).manufacturer}
+                  </p>
                 </div>
               ))}
               <Button

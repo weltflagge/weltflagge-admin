@@ -45,6 +45,13 @@ const manufacturerMap: Record<string, OrderItemProduction["manufacturer"]> = {
   OPINION: "opinion",
   LOGO_PL: "logo_pl",
   MPH_MACIEJ: "mph_maciej",
+  WMD: "wmd",
+};
+
+const printFileSideMap: Record<string, "front" | "back" | "general"> = {
+  FRONT: "front",
+  BACK: "back",
+  GENERAL: "general",
 };
 
 function formatDate(date: Date | null) {
@@ -86,6 +93,35 @@ function mapAddress(address: {
   };
 }
 
+function mapPrintFile(printFile: {
+  status: string;
+  fileName: string | null;
+  fileUrl: string | null;
+  side: string;
+}) {
+  return {
+    status: printFileStatusMap[printFile.status] ?? "missing",
+    fileName: printFile.fileName ?? "",
+    fileUrl: printFile.fileUrl ?? undefined,
+    side: printFileSideMap[printFile.side] ?? "front",
+  };
+}
+
+function mapPrimaryPrintFile(printFiles: Array<{
+  status: string;
+  fileName: string | null;
+  fileUrl: string | null;
+  side: string;
+}>) {
+  const printFile = printFiles.find((file) => file.side === "FRONT") ?? printFiles[0];
+
+  if (!printFile) {
+    return { status: "missing" as const, fileName: "" };
+  }
+
+  return mapPrintFile(printFile);
+}
+
 export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order | null> {
   if (!hasDatabaseUrl()) {
     return null;
@@ -99,7 +135,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
       shippingAddress: true,
       items: {
         include: {
-          printFile: true,
+          printFiles: true,
           productionState: {
             include: {
               manufacturer: true,
@@ -134,11 +170,8 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
       sku: item.sku ?? `line-${item.lineNumber}`,
       size: item.size ?? "-",
       quantity: item.quantity,
-      printFile: {
-        status: printFileStatusMap[item.printFile?.status ?? "MISSING"] ?? "missing",
-        fileName: item.printFile?.fileName ?? "",
-        fileUrl: item.printFile?.fileUrl ?? undefined,
-      },
+      printFile: mapPrimaryPrintFile(item.printFiles),
+      printFiles: item.printFiles.map(mapPrintFile),
       production: {
         manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
         batchId: item.productionState?.currentBatchId ?? undefined,
@@ -175,7 +208,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
       shippingAddress: true,
       items: {
         include: {
-          printFile: true,
+          printFiles: true,
           productionState: {
             include: {
               manufacturer: true,
@@ -207,11 +240,8 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
       sku: item.sku ?? `line-${item.lineNumber}`,
       size: item.size ?? "-",
       quantity: item.quantity,
-      printFile: {
-        status: printFileStatusMap[item.printFile?.status ?? "MISSING"] ?? "missing",
-        fileName: item.printFile?.fileName ?? "",
-        fileUrl: item.printFile?.fileUrl ?? undefined,
-      },
+      printFile: mapPrimaryPrintFile(item.printFiles),
+      printFiles: item.printFiles.map(mapPrintFile),
       production: {
         manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
         batchId: item.productionState?.currentBatchId ?? undefined,

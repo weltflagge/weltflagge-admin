@@ -13,10 +13,11 @@ type ProductionActionResult = {
   batchId?: string;
 };
 
-const manufacturerDbCodeByUiId: Record<ActiveManufacturer, "OPINION" | "LOGO_PL" | "MPH_MACIEJ"> = {
+const manufacturerDbCodeByUiId: Record<ActiveManufacturer, "OPINION" | "LOGO_PL" | "MPH_MACIEJ" | "WMD"> = {
   opinion: "OPINION",
   logo_pl: "LOGO_PL",
   mph_maciej: "MPH_MACIEJ",
+  wmd: "WMD",
 };
 
 async function ensureManufacturer(manufacturer: ActiveManufacturer) {
@@ -28,7 +29,7 @@ async function ensureManufacturer(manufacturer: ActiveManufacturer) {
     update: {},
     create: {
       code: manufacturerCode,
-      name: manufacturer === "opinion" ? "Opinion" : manufacturer === "logo_pl" ? "Logo.pl" : "MPH - Maciej",
+      name: manufacturer === "opinion" ? "Opinion" : manufacturer === "logo_pl" ? "Logo.pl" : manufacturer === "mph_maciej" ? "MPH - Maciej" : "WMD",
       exportFormat: `${manufacturer}-xlsx`,
     },
   });

@@ -22,12 +22,13 @@ export type PrintFile = {
   status: PrintFileStatus;
   fileName: string;
   fileUrl?: string;
+  side?: "front" | "back" | "general";
 };
 
 export type OrderItemProductionStatus = "not_routed" | "draft" | "sent" | "confirmed" | "produced";
 
 export type OrderItemProduction = {
-  manufacturer?: "opinion" | "logo_pl" | "mph_maciej";
+  manufacturer?: "opinion" | "logo_pl" | "mph_maciej" | "wmd";
   batchId?: string;
   status: OrderItemProductionStatus;
 };
@@ -38,6 +39,7 @@ export type OrderItem = {
   size: string;
   quantity: number;
   printFile: PrintFile;
+  printFiles?: PrintFile[];
   production: OrderItemProduction;
 };
 

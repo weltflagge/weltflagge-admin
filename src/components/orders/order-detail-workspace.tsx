@@ -320,6 +320,15 @@ export function OrderDetailWorkspace({
                 fileName: nextFileName,
                 status: nextStatus,
               },
+              printFiles: currentItem.printFiles?.map((printFile) =>
+                printFile.side === "front"
+                  ? {
+                      ...printFile,
+                      fileName: nextFileName,
+                      status: nextStatus,
+                    }
+                  : printFile
+              ),
             }
           : currentItem
       )
@@ -352,6 +361,14 @@ export function OrderDetailWorkspace({
                 ...currentItem.printFile,
                 status,
               },
+              printFiles: currentItem.printFiles?.map((printFile) =>
+                printFile.side === "front"
+                  ? {
+                      ...printFile,
+                      status,
+                    }
+                  : printFile
+              ),
             }
           : currentItem
       )
@@ -493,7 +510,14 @@ export function OrderDetailWorkspace({
                       {savingSku === item.sku ? "Saving..." : "Attach file name"}
                     </Button>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">{item.printFile.fileName || "No print file name attached yet."}</p>
+                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                    <p>Front: {item.printFile.fileName || "No print file name attached yet."}</p>
+                    {item.printFiles
+                      ?.filter((printFile) => printFile.side === "back")
+                      .map((printFile) => (
+                        <p key={`${item.sku}-back`}>Back: {printFile.fileName || "No back-side print file attached yet."}</p>
+                      ))}
+                  </div>
                 </div>
               ))}
             </div>

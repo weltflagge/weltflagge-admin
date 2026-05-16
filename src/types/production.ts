@@ -1,6 +1,6 @@
 import type { OrderItemProductionStatus, PrintFile } from "@/src/types/order";
 
-export type ManufacturerId = "opinion" | "logo_pl" | "mph_maciej" | "needs_review";
+export type ManufacturerId = "opinion" | "logo_pl" | "mph_maciej" | "wmd" | "needs_review";
 
 export type Manufacturer = {
   id: Exclude<ManufacturerId, "needs_review">;
@@ -22,6 +22,7 @@ export type ProductionRow = {
   quantity: number;
   finishing: string;
   printFile: PrintFile;
+  printFiles?: PrintFile[];
   productionStatus: OrderItemProductionStatus;
   batchId?: string;
   deadline: string;

@@ -18,7 +18,7 @@ import {
   sortProductionRowsForExport,
   validateProductionRowsForExport,
 } from "@/src/lib/production-export";
-import { manufacturerLabels, manufacturers, productionRows } from "@/src/lib/mock-production";
+import { manufacturerLabels, manufacturers } from "@/src/lib/mock-production";
 import type {
   ManufacturerId,
   ProductionBatchStatus,
@@ -29,8 +29,9 @@ import type {
 
 type ActiveManufacturer = Exclude<ManufacturerId, "needs_review">;
 type BatchStatusMap = Record<ActiveManufacturer, ProductionBatchStatus>;
+type ProductionActionResult = Promise<{ ok: boolean; error?: string; batchId?: string }>;
 
-const initialBatchStatus: BatchStatusMap = {
+const defaultInitialBatchStatus: BatchStatusMap = {
   opinion: "Draft",
   logo_pl: "Draft",
   mph_maciej: "Draft",
@@ -133,11 +134,25 @@ function BatchTable({
   );
 }
 
-export function ProductionWorkspace() {
-  const [rows, setRows] = useState(productionRows);
+export function ProductionWorkspace({
+  initialRows,
+  initialBatchStatus = defaultInitialBatchStatus,
+  onAssignManufacturer,
+  onCreateDraftBatch,
+  onSendBatch,
+}: {
+  initialRows: ProductionRow[];
+  initialBatchStatus?: BatchStatusMap;
+  onAssignManufacturer?: (input: { rowId: string; manufacturer: ActiveManufacturer }) => ProductionActionResult;
+  onCreateDraftBatch?: (input: { manufacturer: ActiveManufacturer; rowIds: string[] }) => ProductionActionResult;
+  onSendBatch?: (input: { manufacturer: ActiveManufacturer; rowIds: string[] }) => ProductionActionResult;
+}) {
+  const [rows, setRows] = useState(initialRows);
   const [selectedManufacturer, setSelectedManufacturer] = useState<ActiveManufacturer>("opinion");
   const [batchStatus, setBatchStatus] = useState<BatchStatusMap>(initialBatchStatus);
   const [allowReceivedFiles, setAllowReceivedFiles] = useState(false);
+  const [savingAction, setSavingAction] = useState<string | null>(null);
+  const [productionMessage, setProductionMessage] = useState<string | null>(null);
 
   const reviewRows = rows.filter((row) => row.manufacturer === "needs_review");
   const routedRows = rows.filter((row) => row.manufacturer !== "needs_review");
@@ -167,7 +182,7 @@ export function ProductionWorkspace() {
   const hasExportBlockers = exportValidation.blockedRows > 0;
   const selectedIssues = exportValidation.issues;
 
-  function assignRow(rowId: string, manufacturer: ActiveManufacturer) {
+  async function assignRow(rowId: string, manufacturer: ActiveManufacturer) {
     setRows((currentRows) =>
       currentRows.map((row) =>
         row.id === rowId
@@ -183,16 +198,62 @@ export function ProductionWorkspace() {
       )
     );
     setSelectedManufacturer(manufacturer);
+    setProductionMessage(null);
+
+    if (!onAssignManufacturer) {
+      return;
+    }
+
+    setSavingAction(`assign-${rowId}`);
+
+    try {
+      const result = await onAssignManufacturer({ rowId, manufacturer });
+      setProductionMessage(result.ok ? `Assigned to ${manufacturerLabels[manufacturer]} and saved.` : result.error ?? "Assignment could not be saved.");
+    } catch {
+      setProductionMessage("Assignment could not be saved.");
+    } finally {
+      setSavingAction(null);
+    }
   }
 
-  function createDraftBatch() {
+  async function createDraftBatch() {
     setBatchStatus((currentStatusMap) => ({
       ...currentStatusMap,
       [selectedManufacturer]: "Draft",
     }));
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.manufacturer === selectedManufacturer
+          ? {
+              ...row,
+              productionStatus: "draft",
+              batchId,
+            }
+          : row
+      )
+    );
+    setProductionMessage(null);
+
+    if (!onCreateDraftBatch) {
+      return;
+    }
+
+    setSavingAction("draft");
+
+    try {
+      const result = await onCreateDraftBatch({
+        manufacturer: selectedManufacturer,
+        rowIds: selectedRows.map((row) => row.id),
+      });
+      setProductionMessage(result.ok ? `Draft batch ${result.batchId ?? batchId} saved.` : result.error ?? "Draft batch could not be saved.");
+    } catch {
+      setProductionMessage("Draft batch could not be saved.");
+    } finally {
+      setSavingAction(null);
+    }
   }
 
-  function sendToManufacturer() {
+  async function sendToManufacturer() {
     if (hasExportBlockers) {
       return;
     }
@@ -212,6 +273,25 @@ export function ProductionWorkspace() {
       ...currentStatusMap,
       [selectedManufacturer]: "Sent to manufacturer",
     }));
+    setProductionMessage(null);
+
+    if (!onSendBatch) {
+      return;
+    }
+
+    setSavingAction("send");
+
+    try {
+      const result = await onSendBatch({
+        manufacturer: selectedManufacturer,
+        rowIds: selectedRows.map((row) => row.id),
+      });
+      setProductionMessage(result.ok ? `Batch ${result.batchId ?? batchId} marked as sent.` : result.error ?? "Batch could not be sent.");
+    } catch {
+      setProductionMessage("Batch could not be sent.");
+    } finally {
+      setSavingAction(null);
+    }
   }
 
   function exportXlsx() {
@@ -317,9 +397,10 @@ export function ProductionWorkspace() {
                         type="button"
                         variant="outline"
                         onClick={() => assignRow(row.id, manufacturer.id)}
+                        disabled={savingAction === `assign-${row.id}`}
                         className="rounded-full border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
                       >
-                        Assign to {manufacturer.name}
+                        {savingAction === `assign-${row.id}` ? "Saving..." : `Assign to ${manufacturer.name}`}
                       </Button>
                     ))}
                   </div>
@@ -358,19 +439,20 @@ export function ProductionWorkspace() {
               type="button"
               variant="outline"
               onClick={createDraftBatch}
+              disabled={!selectedRows.length || savingAction === "draft"}
               className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
             >
               <PackageCheck className="h-4 w-4" />
-              Create draft batch
+              {savingAction === "draft" ? "Saving..." : "Create draft batch"}
             </Button>
             <Button
               type="button"
               onClick={sendToManufacturer}
-              disabled={!selectedRows.length || sent || hasExportBlockers}
+              disabled={!selectedRows.length || sent || hasExportBlockers || savingAction === "send"}
               className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100 disabled:opacity-40"
             >
               <Send className="h-4 w-4" />
-              {sent ? "Sent" : "Mark as sent"}
+              {savingAction === "send" ? "Saving..." : sent ? "Sent" : "Mark as sent"}
             </Button>
             <Button
               type="button"
@@ -384,6 +466,11 @@ export function ProductionWorkspace() {
             </Button>
           </div>
         </div>
+        {productionMessage ? (
+          <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">
+            {productionMessage}
+          </div>
+        ) : null}
         <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>

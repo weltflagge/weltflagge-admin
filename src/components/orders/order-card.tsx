@@ -19,20 +19,20 @@ export function OrderCard({ order }: OrderCardProps) {
   const primaryItem = order.items[0];
 
   return (
-    <article className="group rounded-xl border border-[#24262b] bg-[#18191b] p-4 transition hover:border-[#33363d] hover:bg-[#1d1f22]">
+    <article className="group rounded-xl border border-[#27364f] bg-[#172033] p-4 transition hover:border-[#465fff]/45 hover:bg-[#1b263b]">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <PriorityDot priority={order.priority} />
-            <Link href={`/orders/${order.id}`} className="font-semibold text-white transition hover:text-[#0a84ff]">
+            <Link href={`/orders/${order.id}`} className="font-semibold text-white transition hover:text-[#8095ff]">
               {order.id}
             </Link>
-            <span className="text-xs text-zinc-500">{order.date}</span>
-            <span className="rounded-full border border-[#24262b] bg-black px-2.5 py-1 text-xs text-zinc-300">{sourceLabels[order.source]}</span>
+            <span className="text-xs text-slate-500">{order.date}</span>
+            <span className="rounded-full border border-[#27364f] bg-[#111827] px-2.5 py-1 text-xs text-slate-300">{sourceLabels[order.source]}</span>
             <StatusChip status={order.status} />
           </div>
-          <p className="mt-2 truncate text-sm font-medium text-zinc-200">{order.customer}</p>
-          <p className="mt-1 truncate text-xs text-zinc-500">
+          <p className="mt-2 truncate text-sm font-medium text-slate-200">{order.customer}</p>
+          <p className="mt-1 truncate text-xs text-slate-500">
             {primaryItem.name} - {primaryItem.size} - Qty {primaryItem.quantity}
           </p>
         </div>
@@ -44,7 +44,7 @@ export function OrderCard({ order }: OrderCardProps) {
               {order.paymentStatus}
             </p>
           </div>
-          <Button asChild variant="outline" className="rounded-xl border-[#24262b] bg-black text-white hover:bg-[#24262b]">
+          <Button asChild variant="outline" className="rounded-xl border-[#27364f] bg-[#111827] text-white hover:bg-[#22304a]">
             <Link href={`/orders/${order.id}`} aria-label={`Open ${order.id}`}>
               <Eye className="h-4 w-4" />
             </Link>
@@ -52,15 +52,15 @@ export function OrderCard({ order }: OrderCardProps) {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-zinc-500 md:grid-cols-3">
-        <div className="rounded-lg bg-black p-3">
-          Druckdaten: <span className="text-zinc-300">{order.artworkStatus}</span>
+      <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-slate-500 md:grid-cols-3">
+        <div className="rounded-lg bg-[#111827] p-3">
+          Druckdaten: <span className="text-slate-300">{order.artworkStatus}</span>
         </div>
-        <div className="rounded-lg bg-black p-3">
-          Versand: <span className="text-zinc-300">{order.carrier}</span>
+        <div className="rounded-lg bg-[#111827] p-3">
+          Versand: <span className="text-slate-300">{order.carrier}</span>
         </div>
-        <div className="rounded-lg bg-black p-3">
-          Deadline: <span className="text-zinc-300">{order.deadline}</span>
+        <div className="rounded-lg bg-[#111827] p-3">
+          Deadline: <span className="text-slate-300">{order.deadline}</span>
         </div>
       </div>
 

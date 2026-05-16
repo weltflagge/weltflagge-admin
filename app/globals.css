@@ -49,72 +49,72 @@
 }
 
 :root {
-  --background: #000000;
-  --foreground: #f4f4f5;
-  --card: #18191b;
-  --card-foreground: #f4f4f5;
-  --popover: #18191b;
-  --popover-foreground: #f4f4f5;
-  --primary: #0a84ff;
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --card: #172033;
+  --card-foreground: #f8fafc;
+  --popover: #172033;
+  --popover-foreground: #f8fafc;
+  --primary: #465fff;
   --primary-foreground: #ffffff;
-  --secondary: #18191b;
-  --secondary-foreground: #f4f4f5;
-  --muted: #18191b;
-  --muted-foreground: #a1a1aa;
-  --accent: #0a84ff;
+  --secondary: #1a2335;
+  --secondary-foreground: #f8fafc;
+  --muted: #1a2335;
+  --muted-foreground: #94a3b8;
+  --accent: #465fff;
   --accent-foreground: #ffffff;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: #24262b;
-  --input: #24262b;
-  --ring: #0a84ff;
+  --border: #27364f;
+  --input: #27364f;
+  --ring: #465fff;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: #000000;
-  --sidebar-foreground: #f4f4f5;
-  --sidebar-primary: #0a84ff;
+  --sidebar: #111827;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #465fff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #18191b;
-  --sidebar-accent-foreground: #f4f4f5;
-  --sidebar-border: #1f2024;
-  --sidebar-ring: #0a84ff;
+  --sidebar-accent: #1d2b53;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #1f2a3d;
+  --sidebar-ring: #465fff;
 }
 
 .dark {
-  --background: #000000;
-  --foreground: #f4f4f5;
-  --card: #18191b;
-  --card-foreground: #f4f4f5;
-  --popover: #18191b;
-  --popover-foreground: #f4f4f5;
-  --primary: #0a84ff;
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --card: #172033;
+  --card-foreground: #f8fafc;
+  --popover: #172033;
+  --popover-foreground: #f8fafc;
+  --primary: #465fff;
   --primary-foreground: #ffffff;
-  --secondary: #18191b;
-  --secondary-foreground: #f4f4f5;
-  --muted: #18191b;
-  --muted-foreground: #a1a1aa;
-  --accent: #0a84ff;
+  --secondary: #1a2335;
+  --secondary-foreground: #f8fafc;
+  --muted: #1a2335;
+  --muted-foreground: #94a3b8;
+  --accent: #465fff;
   --accent-foreground: #ffffff;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: #24262b;
-  --input: #24262b;
-  --ring: #0a84ff;
+  --border: #27364f;
+  --input: #27364f;
+  --ring: #465fff;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: #000000;
-  --sidebar-foreground: #f4f4f5;
-  --sidebar-primary: #0a84ff;
+  --sidebar: #111827;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #465fff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #18191b;
-  --sidebar-accent-foreground: #f4f4f5;
-  --sidebar-border: #1f2024;
-  --sidebar-ring: #0a84ff;
+  --sidebar-accent: #1d2b53;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #1f2a3d;
+  --sidebar-ring: #465fff;
 }
 
 @layer base {
@@ -141,18 +141,18 @@
 @layer utilities {
   .border-slate-800,
   .border-slate-800\/80 {
-    border-color: #24262b !important;
+    border-color: #27364f !important;
   }
 
   .border-slate-700 {
-    border-color: #33363d !important;
+    border-color: #334462 !important;
   }
 
   .bg-slate-950,
   .bg-slate-950\/60,
   .bg-slate-950\/70,
   .bg-slate-950\/80 {
-    background-color: rgb(24 25 27 / 0.95) !important;
+    background-color: rgb(23 32 51 / 0.96) !important;
   }
 
   .bg-slate-900,
@@ -160,15 +160,15 @@
   .bg-slate-900\/50,
   .bg-slate-900\/60,
   .bg-slate-900\/70 {
-    background-color: rgb(18 19 21 / 0.96) !important;
+    background-color: rgb(17 24 39 / 0.96) !important;
   }
 
   .hover\:bg-slate-800:hover {
-    background-color: #24262b !important;
+    background-color: #22304a !important;
   }
 
   .hover\:bg-slate-900\/70:hover {
-    background-color: #1d1f22 !important;
+    background-color: #1b263b !important;
   }
 
   .text-slate-100 {
@@ -194,31 +194,31 @@
 
   .text-cyan-100,
   .text-cyan-200 {
-    color: #7cc4ff !important;
+    color: #9aa8ff !important;
   }
 
   .bg-cyan-200,
   .bg-cyan-300\/70 {
-    background-color: #0a84ff !important;
+    background-color: #465fff !important;
     color: #ffffff !important;
   }
 
   .border-cyan-300\/20,
   .border-cyan-300\/30,
   .border-cyan-500\/25 {
-    border-color: rgb(10 132 255 / 0.35) !important;
+    border-color: rgb(70 95 255 / 0.38) !important;
   }
 
   .bg-cyan-300\/10,
   .bg-cyan-500\/10 {
-    background-color: rgb(10 132 255 / 0.12) !important;
+    background-color: rgb(70 95 255 / 0.14) !important;
   }
 
   .focus\:border-cyan-300\/40:focus {
-    border-color: rgb(10 132 255 / 0.55) !important;
+    border-color: rgb(70 95 255 / 0.62) !important;
   }
 
   .focus\:ring-cyan-300\/10:focus {
-    --tw-ring-color: rgb(10 132 255 / 0.12) !important;
+    --tw-ring-color: rgb(70 95 255 / 0.14) !important;
   }
 }

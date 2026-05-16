@@ -119,21 +119,22 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-5 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-            Internal order command center - {source === "database" ? "Postgres live data" : "mock fallback"}
-          </div>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
-            Central order operations
+          <p className="text-sm font-medium text-[#8095ff]">Dashboard</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">
+            Order operations
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             One cockpit for incoming WooCommerce, eBay and E-Mail orders before they move into print-file checks,
             approvals, production and shipping.
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300">
+            {source === "database" ? "Postgres live data" : "Mock fallback"}
+          </span>
           <Button asChild variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
             <Link href="/orders">Open orders</Link>
           </Button>

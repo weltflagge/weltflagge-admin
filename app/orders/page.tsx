@@ -11,16 +11,16 @@ export default async function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-medium text-cyan-200">Orders</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-5xl">Order list</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+          <p className="text-sm font-medium text-[#8095ff]">Orders</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Order list</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             Central queue for WooCommerce, eBay and E-Mail orders. Current data source: {source === "database" ? "Postgres" : "mock fallback"}.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
             {orders.length} orders
           </span>
           <Button asChild className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">

@@ -5,9 +5,9 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <p className="text-sm font-medium text-cyan-200">Settings</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-5xl">System settings</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+        <p className="text-sm font-medium text-[#8095ff]">Settings</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">System settings</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
           Placeholder for connector credentials, user roles, workflow rules and deployment settings.
         </p>
       </header>

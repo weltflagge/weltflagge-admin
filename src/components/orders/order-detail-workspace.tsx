@@ -6,7 +6,9 @@ import {
   ArrowLeft,
   CalendarClock,
   ClipboardList,
+  Factory,
   FileCheck2,
+  GitBranch,
   Mail,
   MapPin,
   MessageSquarePlus,
@@ -21,7 +23,9 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
+import { manufacturerLabels } from "@/src/lib/mock-production";
 import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ManufacturerId } from "@/src/types/production";
 import { StatusChip } from "./status-chip";
 
 const printFileStatuses: PrintFileStatus[] = ["missing", "received", "approved", "problem"];
@@ -131,6 +135,42 @@ function printFileStatusClass(status: PrintFileStatus) {
   return "border-amber-500/25 bg-amber-500/10 text-amber-200";
 }
 
+function productionStatusClass(status: OrderItem["production"]["status"]) {
+  if (status === "produced") {
+    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
+  }
+
+  if (status === "sent" || status === "confirmed") {
+    return "border-cyan-500/25 bg-cyan-500/10 text-cyan-200";
+  }
+
+  if (status === "draft") {
+    return "border-slate-700 bg-slate-900 text-slate-300";
+  }
+
+  return "border-amber-500/25 bg-amber-500/10 text-amber-200";
+}
+
+function getItemPrintFiles(item: OrderItem) {
+  return item.printFiles?.length ? item.printFiles : [item.printFile];
+}
+
+function getPrintFileCompleteness(item: OrderItem) {
+  const printFiles = getItemPrintFiles(item);
+  const missingFiles = printFiles.filter((printFile) => !printFile.fileName || printFile.status === "missing");
+  const problemFiles = printFiles.filter((printFile) => printFile.status === "problem");
+
+  if (problemFiles.length > 0) {
+    return { label: "Problem", className: "border-red-500/25 bg-red-500/10 text-red-200" };
+  }
+
+  if (missingFiles.length > 0) {
+    return { label: "Incomplete", className: "border-amber-500/25 bg-amber-500/10 text-amber-200" };
+  }
+
+  return { label: "Complete", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" };
+}
+
 export function OrderDetailWorkspace({
   order,
   onPrintFileUpdate,
@@ -157,9 +197,30 @@ export function OrderDetailWorkspace({
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   const allPrintFilesApproved = useMemo(
-    () => items.length > 0 && items.every((item) => item.printFile.status === "approved"),
+    () => items.length > 0 && items.every((item) => getItemPrintFiles(item).every((printFile) => printFile.status === "approved")),
     [items]
   );
+  const productionGroups = useMemo(() => {
+    const groups = new Map<ManufacturerId, OrderItem[]>();
+
+    for (const item of items) {
+      const manufacturer = item.production.manufacturer ?? "needs_review";
+      groups.set(manufacturer, [...(groups.get(manufacturer) ?? []), item]);
+    }
+
+    return Array.from(groups.entries()).map(([manufacturer, groupedItems]) => {
+      const completeItems = groupedItems.filter((item) => getPrintFileCompleteness(item).label === "Complete").length;
+      const batchIds = [...new Set(groupedItems.map((item) => item.production.batchId).filter(Boolean))];
+
+      return {
+        manufacturer,
+        items: groupedItems,
+        completeItems,
+        batchIds,
+      };
+    });
+  }, [items]);
+  const splitAcrossManufacturers = productionGroups.length > 1;
 
   function addTimelineEntry(message: string) {
     setTimeline((currentTimeline) => [
@@ -219,15 +280,6 @@ export function OrderDetailWorkspace({
       nextStatus === "In production" ? "Order marked as in production." : "Order marked as ready for shipping.";
 
     setStatus(nextStatus);
-    setItems((currentItems) =>
-      currentItems.map((item) => ({
-        ...item,
-        production: {
-          ...item.production,
-          status: nextStatus === "In production" ? "confirmed" : "produced",
-        },
-      }))
-    );
 
     if (!onStatusUpdate) {
       addTimelineEntry(fallbackMessage);
@@ -411,6 +463,11 @@ export function OrderDetailWorkspace({
             >
               {allPrintFilesApproved ? "Druckdaten ready" : "Druckdaten open"}
             </span>
+            {splitAcrossManufacturers ? (
+              <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-3 py-1 text-xs font-medium text-violet-100">
+                Split production
+              </span>
+            ) : null}
           </div>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-5xl">{order.id}</h1>
           <p className="mt-3 text-sm text-slate-400">
@@ -451,6 +508,87 @@ export function OrderDetailWorkspace({
               <AddressBlock address={order.shippingAddress} />
             </DetailCard>
           </div>
+
+          <DetailCard title="Production overview" icon={Factory}>
+            <div className="space-y-4">
+              {splitAcrossManufacturers ? (
+                <div className="flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-400/10 p-4">
+                  <GitBranch className="mt-0.5 h-5 w-5 text-violet-100" />
+                  <div>
+                    <p className="text-sm font-medium text-violet-100">This order is split across multiple manufacturers.</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      The main order status remains separate from item production. Shipping can be handled after all item-level work is ready.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {productionGroups.map((group) => (
+                  <div key={group.manufacturer} className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-white">{manufacturerLabels[group.manufacturer]}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {group.items.length} item{group.items.length === 1 ? "" : "s"} - {group.completeItems}/{group.items.length} Druckdaten complete
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+                        {group.batchIds.length ? `${group.batchIds.length} batch${group.batchIds.length === 1 ? "" : "es"}` : "No batch"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {group.items.map((item) => {
+                        const completeness = getPrintFileCompleteness(item);
+
+                        return (
+                          <div key={`${group.manufacturer}-${item.sku}-${item.size}`} className="rounded-lg bg-slate-950/70 p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-white">{item.name}</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {item.sku} - {item.size} - Qty {item.quantity}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${productionStatusClass(item.production.status)}`}>
+                                  {item.production.status}
+                                </span>
+                                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${completeness.className}`}>
+                                  {completeness.label}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                              <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Batch</p>
+                                <p className="mt-1 text-sm text-slate-200">{item.production.batchId ?? "Not batched yet"}</p>
+                              </div>
+                              <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Print files</p>
+                                <div className="mt-1 space-y-1">
+                                  {getItemPrintFiles(item).map((printFile) => (
+                                    <p key={`${item.sku}-${printFile.side ?? "front"}`} className="flex justify-between gap-3 text-xs">
+                                      <span className="text-slate-500">{printFile.side ?? "front"}</span>
+                                      <span className={printFile.fileName && printFile.status !== "missing" ? "text-slate-200" : "text-amber-200"}>
+                                        {printFile.fileName || "missing"}
+                                      </span>
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </DetailCard>
 
           <DetailCard title="Ordered products" icon={Package}>
             <div className="space-y-3">

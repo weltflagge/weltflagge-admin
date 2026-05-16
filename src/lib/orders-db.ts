@@ -139,6 +139,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
           productionState: {
             include: {
               manufacturer: true,
+              currentBatch: true,
             },
           },
         },
@@ -174,7 +175,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
       printFiles: item.printFiles.map(mapPrintFile),
       production: {
         manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
-        batchId: item.productionState?.currentBatchId ?? undefined,
+        batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
         status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
       },
     })),
@@ -212,6 +213,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
           productionState: {
             include: {
               manufacturer: true,
+              currentBatch: true,
             },
           },
         },
@@ -244,7 +246,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
       printFiles: item.printFiles.map(mapPrintFile),
       production: {
         manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
-        batchId: item.productionState?.currentBatchId ?? undefined,
+        batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
         status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
       },
     })),

@@ -46,11 +46,6 @@ const dbOrderStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PROD
   "Ready to ship": "READY_TO_SHIP",
 };
 
-const dbProductionStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PRODUCTION" | "PRODUCED"> = {
-  "In production": "IN_PRODUCTION",
-  "Ready to ship": "PRODUCED",
-};
-
 function formatTimestamp(date: Date) {
   return new Intl.DateTimeFormat("sv-SE", {
     year: "numeric",
@@ -145,7 +140,6 @@ export async function updateOrderWorkflowStatus(input: OrderStatusUpdateInput): 
 
   const prisma = getPrisma();
   const dbOrderStatus = dbOrderStatusByUiStatus[input.status];
-  const dbProductionStatus = dbProductionStatusByUiStatus[input.status];
   const message =
     input.status === "In production"
       ? "Order marked as in production."
@@ -165,14 +159,6 @@ export async function updateOrderWorkflowStatus(input: OrderStatusUpdateInput): 
     await tx.order.update({
       where: { id: order.id },
       data: { status: dbOrderStatus },
-    });
-
-    await tx.orderItemProductionState.updateMany({
-      where: {
-        orderItem: { orderId: order.id },
-        status: { notIn: ["DELIVERED"] },
-      },
-      data: { status: dbProductionStatus },
     });
 
     return tx.activityLog.create({

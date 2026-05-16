@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Factory, Inbox, Settings, Sparkles, Wand2 } from "lucide-react";
+import { BarChart3, Factory, Inbox, PackageSearch, Settings, Sparkles, Wand2 } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: BarChart3 },
   { label: "Orders", href: "/orders", icon: Inbox },
+  { label: "Imports", href: "/imports", icon: PackageSearch },
   { label: "Production", href: "/production", icon: Factory },
   { label: "Automations", href: "/automations", icon: Sparkles, disabled: true },
   { label: "Settings", href: "/settings", icon: Settings },

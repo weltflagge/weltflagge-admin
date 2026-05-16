@@ -1,4 +1,5 @@
 import type { Order, OrderItemProduction, OrderItemProductionStatus, OrderSource, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import { mockOrders } from "./mock-orders";
 import { getPrisma, hasDatabaseUrl } from "./prisma";
 
 const sourceMap: Record<string, OrderSource> = {
@@ -160,4 +161,90 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
       message: entry.message,
     })),
   };
+}
+
+export async function getOrdersFromDb(): Promise<Order[] | null> {
+  if (!hasDatabaseUrl()) {
+    return null;
+  }
+
+  const prisma = getPrisma();
+  const orders = await prisma.order.findMany({
+    include: {
+      billingAddress: true,
+      shippingAddress: true,
+      items: {
+        include: {
+          printFile: true,
+          productionState: {
+            include: {
+              manufacturer: true,
+            },
+          },
+        },
+        orderBy: { lineNumber: "asc" },
+      },
+      activityLogs: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      },
+    },
+    orderBy: [{ receivedAt: "desc" }, { orderNumber: "desc" }],
+  });
+
+  return orders.map((order) => ({
+    id: order.orderNumber,
+    source: sourceMap[order.source] ?? "email",
+    externalId: order.externalId,
+    date: formatDate(order.receivedAt),
+    customer: order.customerName,
+    email: order.customerEmail,
+    phone: order.customerPhone ?? "-",
+    billingAddress: mapAddress(order.billingAddress),
+    shippingAddress: mapAddress(order.shippingAddress),
+    items: order.items.map((item) => ({
+      name: item.productName,
+      sku: item.sku ?? `line-${item.lineNumber}`,
+      size: item.size ?? "-",
+      quantity: item.quantity,
+      printFile: {
+        status: printFileStatusMap[item.printFile?.status ?? "MISSING"] ?? "missing",
+        fileName: item.printFile?.fileName ?? "",
+        fileUrl: item.printFile?.fileUrl ?? undefined,
+      },
+      production: {
+        manufacturer: item.productionState?.manufacturer?.code ? manufacturerMap[item.productionState.manufacturer.code] : undefined,
+        batchId: item.productionState?.currentBatchId ?? undefined,
+        status: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
+      },
+    })),
+    amount: formatAmount(order.amountCents, order.currency),
+    paymentStatus: order.paymentStatus === "PAID" ? "Paid" : "Open",
+    artworkStatus: "Druckdaten",
+    status: statusMap[order.status] ?? "New",
+    carrier: order.carrier ?? "-",
+    trackingNumber: order.trackingNumber ?? "",
+    priority: order.priority.toLowerCase() as Order["priority"],
+    deadline: formatDate(order.deadlineAt),
+    notes: order.internalNotes ?? "-",
+    timeline: order.activityLogs.map((entry) => ({
+      id: entry.id,
+      timestamp: formatTimestamp(entry.createdAt),
+      actor: entry.actor,
+      message: entry.message,
+    })),
+  }));
+}
+
+export async function getOrdersWithFallback() {
+  try {
+    const dbOrders = await getOrdersFromDb();
+    return {
+      orders: dbOrders && dbOrders.length > 0 ? dbOrders : mockOrders,
+      source: dbOrders && dbOrders.length > 0 ? "database" : "mock",
+    } as const;
+  } catch (error) {
+    console.error("Failed to load orders from database. Falling back to mock orders.", error);
+    return { orders: mockOrders, source: "mock" } as const;
+  }
 }

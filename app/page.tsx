@@ -1,23 +1,27 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { AlertTriangle, CalendarClock, Euro, Inbox, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MetricCard } from "@/src/components/dashboard/metric-card";
 import { OrderCard } from "@/src/components/orders/order-card";
-import { mockOrders, statuses, statusConfig } from "@/src/lib/mock-orders";
+import { statuses, statusConfig } from "@/src/lib/mock-orders";
+import { getOrdersWithFallback } from "@/src/lib/orders-db";
 
-export default function DashboardPage() {
-  const openTasks = mockOrders.filter((order) => order.status !== "Shipped").length;
-  const critical = mockOrders.filter((order) => order.priority === "urgent").length;
-  const ready = mockOrders.filter((order) => order.status === "Ready to ship").length;
-  const activeOrders = mockOrders.filter((order) => order.status !== "Shipped").slice(0, 4);
+export default async function DashboardPage() {
+  await connection();
+  const { orders, source } = await getOrdersWithFallback();
+  const openTasks = orders.filter((order) => order.status !== "Shipped").length;
+  const critical = orders.filter((order) => order.priority === "urgent").length;
+  const ready = orders.filter((order) => order.status === "Ready to ship").length;
+  const activeOrders = orders.filter((order) => order.status !== "Shipped").slice(0, 4);
 
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-5 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-            Internal order command center
+            Internal order command center - {source === "database" ? "Postgres live data" : "mock fallback"}
           </div>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
             Central order operations
@@ -37,7 +41,7 @@ export default function DashboardPage() {
       </header>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Orders today" value={mockOrders.length} subtitle="mock data for MVP planning" icon={Inbox} />
+        <MetricCard title="Orders today" value={orders.length} subtitle={source === "database" ? "live order records" : "mock data for MVP planning"} icon={Inbox} />
         <MetricCard title="Open tasks" value={openTasks} subtitle="orders not yet shipped" icon={CalendarClock} />
         <MetricCard title="Critical" value={critical} subtitle="needs immediate attention" icon={AlertTriangle} />
         <MetricCard title="Ready to ship" value={ready} subtitle="waiting for labels" icon={PackageCheck} />
@@ -71,8 +75,8 @@ export default function DashboardPage() {
 
               <div className="mt-5 space-y-3">
                 {statuses.map((status) => {
-                  const count = mockOrders.filter((order) => order.status === status).length;
-                  const percent = Math.max(8, (count / mockOrders.length) * 100);
+                  const count = orders.filter((order) => order.status === status).length;
+                  const percent = orders.length > 0 ? Math.max(8, (count / orders.length) * 100) : 0;
                   const Icon = statusConfig[status].icon;
 
                   return (

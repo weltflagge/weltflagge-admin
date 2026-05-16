@@ -5,7 +5,6 @@ import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  mockOrders,
   priorityLabels,
   sourceLabels,
   statuses,
@@ -87,7 +86,7 @@ function FilterButton({
   );
 }
 
-export function OrdersWorkspace() {
+export function OrdersWorkspace({ orders }: { orders: Order[] }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
@@ -97,7 +96,7 @@ export function OrdersWorkspace() {
   const [sort, setSort] = useState<SortKey>("newest");
 
   const filteredOrders = useMemo(() => {
-    const result = mockOrders.filter((order) => {
+    const result = orders.filter((order) => {
       const matchesSearch = includesSearch(order, search);
       const matchesStatus = status === "all" || order.status === status;
       const matchesSource = source === "all" || order.source === source;
@@ -135,7 +134,7 @@ export function OrdersWorkspace() {
 
       return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
     });
-  }, [needsActionOnly, payment, priority, search, sort, source, status]);
+  }, [needsActionOnly, orders, payment, priority, search, sort, source, status]);
 
   const hasActiveFilters =
     search ||
@@ -174,7 +173,7 @@ export function OrdersWorkspace() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                {filteredOrders.length} / {mockOrders.length}
+                {filteredOrders.length} / {orders.length}
               </span>
               <select
                 value={sort}

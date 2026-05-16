@@ -148,6 +148,16 @@ function mapPrimaryPrintFile(printFiles: Array<{
   return mapPrintFile(printFile);
 }
 
+function mapProductionStatus(status: string | undefined, manufacturer: OrderItemProduction["manufacturer"]) {
+  const mappedStatus = productionStatusMap[status ?? "NOT_ROUTED"] ?? "not_routed";
+
+  if (mappedStatus === "not_routed" && manufacturer) {
+    return "draft";
+  }
+
+  return mappedStatus;
+}
+
 export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order | null> {
   if (!hasDatabaseUrl()) {
     return null;
@@ -207,11 +217,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
         production: {
           manufacturer,
           batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
-          status: item.productionState?.status
-            ? productionStatusMap[item.productionState.status] ?? "not_routed"
-            : manufacturer
-              ? "draft"
-              : "not_routed",
+          status: mapProductionStatus(item.productionState?.status, manufacturer),
         },
       };
     }),
@@ -288,11 +294,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
         production: {
           manufacturer,
           batchId: item.productionState?.currentBatch?.batchNumber ?? undefined,
-          status: item.productionState?.status
-            ? productionStatusMap[item.productionState.status] ?? "not_routed"
-            : manufacturer
-              ? "draft"
-              : "not_routed",
+          status: mapProductionStatus(item.productionState?.status, manufacturer),
         },
       };
     }),

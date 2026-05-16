@@ -81,6 +81,16 @@ function inferManufacturer(row: {
   return { manufacturer: "needs_review", reason: "No manufacturer routing rule matched this item." };
 }
 
+function mapProductionStatus(status: string | undefined, manufacturer: ManufacturerId) {
+  const mappedStatus = productionStatusMap[status ?? "NOT_ROUTED"] ?? "not_routed";
+
+  if (mappedStatus === "not_routed" && manufacturer !== "needs_review") {
+    return "draft";
+  }
+
+  return mappedStatus;
+}
+
 export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null> {
   if (!hasDatabaseUrl()) {
     return null;
@@ -131,7 +141,7 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
         fileUrl: printFile.fileUrl ?? undefined,
         side: printFileSideMap[printFile.side] ?? "front",
       })),
-      productionStatus: productionStatusMap[item.productionState?.status ?? "NOT_ROUTED"] ?? "not_routed",
+      productionStatus: mapProductionStatus(item.productionState?.status, manufacturer),
       batchId: batch?.batchNumber ?? undefined,
       deadline: formatDate(item.order.deadlineAt),
       notes: item.notes ?? item.order.internalNotes ?? "",

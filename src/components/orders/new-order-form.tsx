@@ -79,13 +79,23 @@ function createBlankItem(): ManualOrderItem {
 
 function normalizeItemForCatalog(item: ManualOrderItem, patch: Partial<ManualOrderItem>) {
   const nextItem = { ...item, ...patch };
+  const productTypeChanged = patch.productType !== undefined && patch.productType !== item.productType;
+  const shapeChanged = patch.shape !== undefined && patch.shape !== item.shape;
   const entry = getCatalogEntry(nextItem.productType);
   const material = entry.materials.some((option) => option.id === nextItem.materialId)
     ? getCatalogMaterial(nextItem.productType, nextItem.materialId)
     : entry.materials[0];
   const printMode = material.allowedPrintModes.includes(nextItem.printMode) ? nextItem.printMode : material.allowedPrintModes[0];
   const shape = entry.shapes?.includes(nextItem.shape) ? nextItem.shape : entry.shapes?.[0] ?? "";
-  const size = entry.sizeMode === "preset" ? entry.sizes?.[shape]?.[0] ?? nextItem.size : nextItem.size;
+  const allowedSizes = entry.sizeMode === "preset" ? entry.sizes?.[shape] ?? [] : [];
+  const size =
+    entry.sizeMode === "preset"
+      ? allowedSizes.includes(nextItem.size) && !shapeChanged
+        ? nextItem.size
+        : allowedSizes[0] ?? ""
+      : productTypeChanged
+        ? entry.defaultSize ?? ""
+        : nextItem.size;
 
   return {
     ...nextItem,

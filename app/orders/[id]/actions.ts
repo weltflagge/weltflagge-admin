@@ -6,7 +6,9 @@ import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
 type PrintFileUpdateInput = {
   orderNumber: string;
+  itemId?: string;
   sku: string;
+  side?: "front" | "back" | "general";
   fileName: string;
   status: PrintFileStatus;
 };
@@ -61,6 +63,12 @@ const dbStatusByUiStatus: Record<PrintFileStatus, "MISSING" | "RECEIVED" | "APPR
   problem: "PROBLEM",
 };
 
+const dbPrintFileSideByUiSide: Record<NonNullable<PrintFileUpdateInput["side"]>, "FRONT" | "BACK" | "GENERAL"> = {
+  front: "FRONT",
+  back: "BACK",
+  general: "GENERAL",
+};
+
 const dbOrderStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PRODUCTION" | "READY_TO_SHIP"> = {
   "In production": "IN_PRODUCTION",
   "Ready to ship": "READY_TO_SHIP",
@@ -106,32 +114,33 @@ export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Pro
 
   const fileName = input.fileName.trim();
   const status = dbStatusByUiStatus[fileName ? input.status : "missing"];
+  const side = dbPrintFileSideByUiSide[input.side ?? "front"];
   const prisma = getPrisma();
 
   const orderItem = await prisma.orderItem.findFirst({
     where: {
-      sku: input.sku,
+      ...(input.itemId ? { id: input.itemId } : { sku: input.sku }),
       order: { orderNumber: input.orderNumber },
     },
     include: { order: true },
   });
 
   if (!orderItem) {
-    return { ok: false, error: `No order item found for SKU ${input.sku}.` };
+    return { ok: false, error: `No order item found for ${input.itemId ? "selected line item" : `SKU ${input.sku}`}.` };
   }
 
   const message = fileName
-    ? `Druckdaten updated for ${orderItem.productName}: ${fileName} (${input.status}).`
-    : `Druckdaten file name cleared for ${orderItem.productName}.`;
+    ? `Druckdaten ${side.toLowerCase()} updated for ${orderItem.productName}: ${fileName} (${input.status}).`
+    : `Druckdaten ${side.toLowerCase()} file name cleared for ${orderItem.productName}.`;
 
   const now = new Date();
 
   const activity = await prisma.$transaction(async (tx) => {
     await tx.printFile.upsert({
-      where: { orderItemId_side: { orderItemId: orderItem.id, side: "FRONT" } },
+      where: { orderItemId_side: { orderItemId: orderItem.id, side } },
       create: {
         orderItemId: orderItem.id,
-        side: "FRONT",
+        side,
         fileName: fileName || null,
         status,
         checkedAt: now,

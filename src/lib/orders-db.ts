@@ -208,6 +208,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
         : inferManufacturer(item);
 
       return {
+        id: item.id,
         name: item.productName,
         sku: item.sku ?? `line-${item.lineNumber}`,
         size: item.size ?? "-",
@@ -285,6 +286,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
         : inferManufacturer(item);
 
       return {
+        id: item.id,
         name: item.productName,
         sku: item.sku ?? `line-${item.lineNumber}`,
         size: item.size ?? "-",

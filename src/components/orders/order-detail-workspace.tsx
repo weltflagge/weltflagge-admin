@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
 import { manufacturerLabels } from "@/src/lib/mock-production";
-import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderPriority, OrderStatus, PrintFile, PrintFileStatus } from "@/src/types/order";
 import type { ManufacturerId } from "@/src/types/production";
 import { StatusChip } from "./status-chip";
 
@@ -49,7 +49,9 @@ const editInputClass =
 
 type PrintFileUpdateAction = (input: {
   orderNumber: string;
+  itemId?: string;
   sku: string;
+  side?: "front" | "back" | "general";
   fileName: string;
   status: PrintFileStatus;
 }) => Promise<{
@@ -200,6 +202,18 @@ function getItemPrintFiles(item: OrderItem) {
   return item.printFiles?.length ? item.printFiles : [item.printFile];
 }
 
+function getItemKey(item: OrderItem) {
+  return item.id ?? `${item.sku}-${item.name}-${item.size}`;
+}
+
+function getPrintFileKey(item: OrderItem, printFile: PrintFile) {
+  return `${getItemKey(item)}-${printFile.side ?? "front"}`;
+}
+
+function getPrimaryPrintFile(item: OrderItem, side: PrintFile["side"] = "front") {
+  return getItemPrintFiles(item).find((printFile) => (printFile.side ?? "front") === side) ?? item.printFile;
+}
+
 function getPrintFileCompleteness(item: OrderItem) {
   const printFiles = getItemPrintFiles(item);
   const missingFiles = printFiles.filter((printFile) => !printFile.fileName || printFile.status === "missing");
@@ -250,11 +264,15 @@ export function OrderDetailWorkspace({
     country: order.shippingAddress.country === "-" ? "" : order.shippingAddress.country,
   });
   const [fileNameDrafts, setFileNameDrafts] = useState<Record<string, string>>(
-    Object.fromEntries(order.items.map((item) => [item.sku, item.printFile.fileName]))
+    Object.fromEntries(
+      order.items.flatMap((item) =>
+        getItemPrintFiles(item).map((printFile) => [getPrintFileKey(item, printFile), printFile.fileName])
+      )
+    )
   );
   const [carrier, setCarrier] = useState(order.carrier === "-" ? "" : order.carrier);
   const [trackingNumber, setTrackingNumber] = useState(order.trackingNumber);
-  const [savingSku, setSavingSku] = useState<string | null>(null);
+  const [savingPrintFileKey, setSavingPrintFileKey] = useState<string | null>(null);
   const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | null>(null);
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -300,18 +318,21 @@ export function OrderDetailWorkspace({
     ]);
   }
 
-  async function persistPrintFileUpdate(sku: string, fileName: string, status: PrintFileStatus) {
+  async function persistPrintFileUpdate(item: OrderItem, side: PrintFile["side"], fileName: string, status: PrintFileStatus) {
     if (!onPrintFileUpdate) {
       return;
     }
 
-    setSavingSku(sku);
+    const printFileKey = `${getItemKey(item)}-${side ?? "front"}`;
+    setSavingPrintFileKey(printFileKey);
     setSaveMessage(null);
 
     try {
       const result = await onPrintFileUpdate({
         orderNumber: order.id,
-        sku,
+        itemId: item.id,
+        sku: item.sku,
+        side,
         fileName,
         status,
       });
@@ -326,7 +347,7 @@ export function OrderDetailWorkspace({
     } catch {
       setSaveMessage("Druckdaten could not be saved to the database.");
     } finally {
-      setSavingSku(null);
+      setSavingPrintFileKey(null);
     }
   }
 
@@ -502,32 +523,33 @@ export function OrderDetailWorkspace({
     }
   }
 
-  function updatePrintFileName(sku: string) {
-    const nextFileName = fileNameDrafts[sku]?.trim() ?? "";
-    const item = items.find((currentItem) => currentItem.sku === sku);
+  function updatePrintFileName(itemKey: string, side: PrintFile["side"]) {
+    const printFileKey = `${itemKey}-${side ?? "front"}`;
+    const nextFileName = fileNameDrafts[printFileKey]?.trim() ?? "";
+    const item = items.find((currentItem) => getItemKey(currentItem) === itemKey);
 
     if (!item) {
       return;
     }
 
+    const currentPrintFile = getPrimaryPrintFile(item, side);
     const nextStatus: PrintFileStatus = nextFileName
-      ? item.printFile.status === "missing"
+      ? currentPrintFile.status === "missing"
         ? "received"
-        : item.printFile.status
+        : currentPrintFile.status
       : "missing";
 
     setItems((currentItems) =>
       currentItems.map((currentItem) =>
-        currentItem.sku === sku
+        getItemKey(currentItem) === itemKey
           ? {
               ...currentItem,
               printFile: {
                 ...currentItem.printFile,
-                fileName: nextFileName,
-                status: nextStatus,
+                ...(side === "front" || !side ? { fileName: nextFileName, status: nextStatus } : {}),
               },
-              printFiles: currentItem.printFiles?.map((printFile) =>
-                printFile.side === "front"
+              printFiles: getItemPrintFiles(currentItem).map((printFile) =>
+                (printFile.side ?? "front") === (side ?? "front")
                   ? {
                       ...printFile,
                       fileName: nextFileName,
@@ -543,32 +565,34 @@ export function OrderDetailWorkspace({
     if (!onPrintFileUpdate) {
       addTimelineEntry(
         nextFileName
-          ? `Druckdaten file name updated for ${item.name}: ${nextFileName}.`
-          : `Druckdaten file name cleared for ${item.name}.`
+          ? `Druckdaten ${side ?? "front"} file name updated for ${item.name}: ${nextFileName}.`
+          : `Druckdaten ${side ?? "front"} file name cleared for ${item.name}.`
       );
     }
 
-    void persistPrintFileUpdate(sku, nextFileName, nextStatus);
+    void persistPrintFileUpdate(item, side, nextFileName, nextStatus);
   }
 
-  function updatePrintFileStatus(sku: string, status: PrintFileStatus) {
-    const item = items.find((currentItem) => currentItem.sku === sku);
+  function updatePrintFileStatus(itemKey: string, side: PrintFile["side"], status: PrintFileStatus) {
+    const item = items.find((currentItem) => getItemKey(currentItem) === itemKey);
 
     if (!item) {
       return;
     }
 
+    const currentPrintFile = getPrimaryPrintFile(item, side);
+
     setItems((currentItems) =>
       currentItems.map((currentItem) =>
-        currentItem.sku === sku
+        getItemKey(currentItem) === itemKey
           ? {
               ...currentItem,
               printFile: {
                 ...currentItem.printFile,
-                status,
+                ...(side === "front" || !side ? { status } : {}),
               },
-              printFiles: currentItem.printFiles?.map((printFile) =>
-                printFile.side === "front"
+              printFiles: getItemPrintFiles(currentItem).map((printFile) =>
+                (printFile.side ?? "front") === (side ?? "front")
                   ? {
                       ...printFile,
                       status,
@@ -581,10 +605,10 @@ export function OrderDetailWorkspace({
     );
 
     if (!onPrintFileUpdate) {
-      addTimelineEntry(`Druckdaten status for ${item.name} changed to ${status}.`);
+      addTimelineEntry(`Druckdaten ${side ?? "front"} status for ${item.name} changed to ${status}.`);
     }
 
-    void persistPrintFileUpdate(sku, item.printFile.fileName, status);
+    void persistPrintFileUpdate(item, side, currentPrintFile.fileName, status);
   }
 
   return (
@@ -711,7 +735,7 @@ export function OrderDetailWorkspace({
                         const completeness = getPrintFileCompleteness(item);
 
                         return (
-                          <div key={`${group.manufacturer}-${item.sku}-${item.size}`} className="rounded-lg bg-slate-950/70 p-3">
+                          <div key={`${group.manufacturer}-${getItemKey(item)}`} className="rounded-lg bg-slate-950/70 p-3">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <p className="text-sm font-medium text-white">{item.name}</p>
@@ -738,7 +762,7 @@ export function OrderDetailWorkspace({
                                 <p className="text-xs uppercase tracking-wide text-slate-500">Print files</p>
                                 <div className="mt-1 space-y-1">
                                   {getItemPrintFiles(item).map((printFile) => (
-                                    <p key={`${item.sku}-${printFile.side ?? "front"}`} className="flex justify-between gap-3 text-xs">
+                                    <p key={getPrintFileKey(item, printFile)} className="flex justify-between gap-3 text-xs">
                                       <span className="text-slate-500">{printFile.side ?? "front"}</span>
                                       <span className={printFile.fileName && printFile.status !== "missing" ? "text-slate-200" : "text-amber-200"}>
                                         {printFile.fileName || "missing"}
@@ -760,72 +784,86 @@ export function OrderDetailWorkspace({
 
           <DetailCard title="Ordered products" icon={Package}>
             <div className="space-y-3">
-              {items.map((item) => (
-                <div key={`${item.sku}-${item.size}`} className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.8fr_0.9fr]">
-                    <div>
-                      <p className="font-medium text-white">{item.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {item.sku} - {item.size} - Qty {item.quantity}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Production</p>
-                      <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Not assigned"}</p>
-                      <p className="mt-1 text-xs text-slate-500">{item.production.status}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Druckdaten</p>
-                      <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${printFileStatusClass(item.printFile.status)}`}>
-                        {item.printFile.status}
-                      </span>
-                    </div>
-                  </div>
+              {items.map((item) => {
+                const itemKey = getItemKey(item);
+                const printFiles = getItemPrintFiles(item);
 
-                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_11rem_auto]">
-                    <input
-                      value={fileNameDrafts[item.sku] ?? ""}
-                      onChange={(event) =>
-                        setFileNameDrafts((currentDrafts) => ({
-                          ...currentDrafts,
-                          [item.sku]: event.target.value,
-                        }))
-                      }
-                      placeholder="Add or update print file name..."
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
-                    />
-                    <select
-                      value={item.printFile.status}
-                      onChange={(event) => updatePrintFileStatus(item.sku, event.target.value as PrintFileStatus)}
-                      className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
-                      aria-label={`Druckdaten status for ${item.sku}`}
-                    >
-                      {printFileStatuses.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => updatePrintFileName(item.sku)}
-                      disabled={savingSku === item.sku}
-                      className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
-                    >
-                      {savingSku === item.sku ? "Saving..." : "Attach file name"}
-                    </Button>
+                return (
+                  <div key={itemKey} className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.8fr_0.9fr]">
+                      <div>
+                        <p className="font-medium text-white">{item.name}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {item.sku} - {item.size} - Qty {item.quantity}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Production</p>
+                        <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Not assigned"}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.production.status}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Druckdaten</p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {printFiles.map((printFile) => (
+                            <span key={getPrintFileKey(item, printFile)} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${printFileStatusClass(printFile.status)}`}>
+                              {printFile.side ?? "front"}: {printFile.status}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {printFiles.map((printFile) => {
+                        const side = printFile.side ?? "front";
+                        const printFileKey = getPrintFileKey(item, printFile);
+
+                        return (
+                          <div key={printFileKey} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3 lg:grid-cols-[7rem_1fr_11rem_auto]">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Side</p>
+                              <p className="mt-1 text-sm font-medium text-slate-200">{side}</p>
+                            </div>
+                            <input
+                              value={fileNameDrafts[printFileKey] ?? ""}
+                              onChange={(event) =>
+                                setFileNameDrafts((currentDrafts) => ({
+                                  ...currentDrafts,
+                                  [printFileKey]: event.target.value,
+                                }))
+                              }
+                              placeholder={`Add or update ${side} print file name...`}
+                              className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
+                            />
+                            <select
+                              value={printFile.status}
+                              onChange={(event) => updatePrintFileStatus(itemKey, side, event.target.value as PrintFileStatus)}
+                              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
+                              aria-label={`Druckdaten status for ${item.sku} ${side}`}
+                            >
+                              {printFileStatuses.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => updatePrintFileName(itemKey, side)}
+                              disabled={savingPrintFileKey === printFileKey}
+                              className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+                            >
+                              {savingPrintFileKey === printFileKey ? "Saving..." : "Attach file name"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-slate-500">
-                    <p>Front: {item.printFile.fileName || "No print file name attached yet."}</p>
-                    {item.printFiles
-                      ?.filter((printFile) => printFile.side === "back")
-                      .map((printFile) => (
-                        <p key={`${item.sku}-back`}>Back: {printFile.fileName || "No back-side print file attached yet."}</p>
-                      ))}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <p className="mt-3 text-xs text-slate-500">
               {saveMessage ?? "Druckdaten changes are saved when a database connection is configured."}

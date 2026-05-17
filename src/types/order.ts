@@ -35,6 +35,7 @@ export type OrderItemProduction = {
 };
 
 export type OrderItem = {
+  id?: string;
   name: string;
   sku: string;
   size: string;

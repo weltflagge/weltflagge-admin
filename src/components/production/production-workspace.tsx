@@ -2,27 +2,31 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Send } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  downloadProductionXlsx,
-  sortProductionRowsForExport,
-  validateProductionRowsForExport,
-} from "@/src/lib/production-export";
-import { manufacturerLabels, manufacturers } from "@/src/lib/mock-production";
+import { downloadProductionXlsx, sortProductionRowsForExport } from "@/src/lib/production-export";
+import { manufacturerLabels } from "@/src/lib/mock-production";
 import type { ManufacturerId, ProductionRow } from "@/src/types/production";
 
 type ActiveManufacturer = Exclude<ManufacturerId, "needs_review">;
-type ManufacturerFilter = ManufacturerId;
+type ManufacturerFilter = "all" | ManufacturerId;
 type ProductionActionResult = Promise<{ ok: boolean; error?: string; batchId?: string }>;
 
 const manufacturerFilters: Array<{ id: ManufacturerFilter; label: string }> = [
+  { id: "all", label: "Alle" },
   { id: "opinion", label: "Opinion" },
   { id: "logo_pl", label: "Logo.pl" },
   { id: "mph_maciej", label: "MPH - Maciej" },
   { id: "wmd", label: "WMD" },
-  { id: "needs_review", label: "Prufen" },
+  { id: "needs_review", label: "Nicht zugeordnet" },
+];
+
+const assignableManufacturers: Array<{ id: ActiveManufacturer; label: string }> = [
+  { id: "opinion", label: "Opinion" },
+  { id: "logo_pl", label: "Logo.pl" },
+  { id: "mph_maciej", label: "MPH - Maciej" },
+  { id: "wmd", label: "WMD" },
 ];
 
 function getPrintFiles(row: ProductionRow) {
@@ -37,42 +41,8 @@ function isSent(row: ProductionRow) {
   return row.productionStatus === "sent" || row.productionStatus === "confirmed" || row.productionStatus === "produced";
 }
 
-function isReadyToSend(row: ProductionRow) {
-  return (row.paymentStatus ?? "Paid") === "Paid" && row.manufacturer !== "needs_review" && hasApprovedPrintFiles(row) && !isSent(row);
-}
-
-function statusLabel(row: ProductionRow) {
-  if ((row.paymentStatus ?? "Paid") !== "Paid") {
-    return "Nicht bezahlt";
-  }
-
-  if (row.manufacturer === "needs_review") {
-    return "Hersteller prufen";
-  }
-
-  if (!hasApprovedPrintFiles(row)) {
-    return "Druckdaten offen";
-  }
-
-  if (isSent(row)) {
-    return "An Hersteller gesendet";
-  }
-
-  return "Bereit";
-}
-
-function statusClass(row: ProductionRow) {
-  const label = statusLabel(row);
-
-  if (label === "Bereit") {
-    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
-  }
-
-  if (label === "An Hersteller gesendet") {
-    return "border-cyan-500/25 bg-cyan-500/10 text-cyan-200";
-  }
-
-  return "border-amber-500/25 bg-amber-500/10 text-amber-200";
+function isReadyForProduction(row: ProductionRow) {
+  return (row.paymentStatus ?? "Paid") === "Paid" && hasApprovedPrintFiles(row) && !isSent(row);
 }
 
 function primaryPrintFileLabel(row: ProductionRow) {
@@ -82,103 +52,22 @@ function primaryPrintFileLabel(row: ProductionRow) {
   return front?.fileName || "fehlt";
 }
 
-function Section({
-  title,
-  subtitle,
-  children,
-  action,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none backdrop-blur-xl">
-      <CardContent className="p-5">
-        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">{title}</h2>
-            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          </div>
-          {action}
-        </div>
-        {children}
-      </CardContent>
-    </Card>
-  );
+function manufacturerLabel(manufacturer: ManufacturerId) {
+  return manufacturer === "needs_review" ? "Nicht zugeordnet" : manufacturerLabels[manufacturer];
 }
 
-function ProductionTable({
-  rows,
-  emptyTitle,
-  emptyText,
-  showSentDate = false,
-  actionsForRow,
-}: {
-  rows: ProductionRow[];
-  emptyTitle: string;
-  emptyText: string;
-  showSentDate?: boolean;
-  actionsForRow?: (row: ProductionRow) => React.ReactNode;
-}) {
-  if (!rows.length) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-        <p className="text-sm font-medium text-white">{emptyTitle}</p>
-        <p className="mt-2 text-sm text-slate-500">{emptyText}</p>
-      </div>
-    );
+function groupByManufacturer(rows: ProductionRow[]) {
+  const groups = new Map<ActiveManufacturer, ProductionRow[]>();
+
+  for (const row of rows) {
+    if (row.manufacturer === "needs_review") {
+      continue;
+    }
+
+    groups.set(row.manufacturer, [...(groups.get(row.manufacturer) ?? []), row]);
   }
 
-  return (
-    <div className="overflow-x-auto rounded-xl border border-slate-800">
-      <table className="min-w-[92rem] w-full border-collapse text-left text-sm">
-        <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-3 font-medium">Bestellung</th>
-            <th className="px-4 py-3 font-medium">Kunde</th>
-            <th className="px-4 py-3 font-medium">Produkt</th>
-            <th className="px-4 py-3 font-medium">Groesse</th>
-            <th className="px-4 py-3 font-medium">Material</th>
-            <th className="px-4 py-3 font-medium">Konfektion</th>
-            <th className="px-4 py-3 font-medium">Stk.</th>
-            <th className="px-4 py-3 font-medium">Hersteller</th>
-            <th className="px-4 py-3 font-medium">Druckdatei</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            {showSentDate ? <th className="px-4 py-3 font-medium">Gesendet am</th> : null}
-            <th className="px-4 py-3 font-medium">Aktion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} className="border-t border-slate-800 bg-slate-950/30">
-              <td className="px-4 py-3 font-medium text-cyan-100">
-                <Link href={`/orders/${row.orderId}`} className="underline-offset-4 hover:underline">
-                  {row.orderId}
-                </Link>
-              </td>
-              <td className="px-4 py-3 text-slate-300">{row.customer}</td>
-              <td className="px-4 py-3 text-white">{row.productName}</td>
-              <td className="px-4 py-3 text-slate-300">{row.size}</td>
-              <td className="px-4 py-3 text-slate-300">{row.material}</td>
-              <td className="px-4 py-3 text-slate-300">{row.finishing}</td>
-              <td className="px-4 py-3 text-slate-200">{row.quantity}</td>
-              <td className="px-4 py-3 text-slate-300">{manufacturerLabels[row.manufacturer]}</td>
-              <td className="px-4 py-3 text-slate-300">{primaryPrintFileLabel(row)}</td>
-              <td className="px-4 py-3">
-                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${statusClass(row)}`}>
-                  {statusLabel(row)}
-                </span>
-              </td>
-              {showSentDate ? <td className="px-4 py-3 text-slate-300">{row.sentAt && row.sentAt !== "-" ? row.sentAt : "-"}</td> : null}
-              <td className="px-4 py-3">{actionsForRow?.(row) ?? <span className="text-slate-600">-</span>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return groups;
 }
 
 export function ProductionWorkspace({
@@ -191,69 +80,102 @@ export function ProductionWorkspace({
   onSendBatch?: (input: { manufacturer: ActiveManufacturer; rowIds: string[] }) => ProductionActionResult;
 }) {
   const [rows, setRows] = useState(initialRows);
-  const [selectedManufacturer, setSelectedManufacturer] = useState<ManufacturerFilter>("opinion");
+  const [selectedFilter, setSelectedFilter] = useState<ManufacturerFilter>("all");
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [bulkManufacturer, setBulkManufacturer] = useState<ActiveManufacturer>("opinion");
+  const [showHistory, setShowHistory] = useState(false);
   const [savingAction, setSavingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const readyRows = useMemo(() => rows.filter(isReadyToSend), [rows]);
+  const readyRows = useMemo(() => rows.filter(isReadyForProduction), [rows]);
   const sentRows = useMemo(() => rows.filter(isSent), [rows]);
+  const visibleRows = useMemo(
+    () => readyRows.filter((row) => selectedFilter === "all" || row.manufacturer === selectedFilter),
+    [readyRows, selectedFilter]
+  );
   const selectedRows = useMemo(
-    () => rows.filter((row) => row.manufacturer === selectedManufacturer),
-    [rows, selectedManufacturer]
+    () => readyRows.filter((row) => selectedRowIds.includes(row.id)),
+    [readyRows, selectedRowIds]
   );
-  const selectedReadyRows = useMemo(
-    () => selectedRows.filter(isReadyToSend),
-    [selectedRows]
-  );
-  const activeManufacturer = selectedManufacturer === "needs_review" ? null : selectedManufacturer;
-  const exportValidation = activeManufacturer
-    ? validateProductionRowsForExport(selectedReadyRows, { allowReceivedFiles: false })
-    : { readyRows: 0, blockedRows: 0, issues: [] };
-  const hasExportBlockers = exportValidation.blockedRows > 0;
+  const assignedSelectedRows = selectedRows.filter((row) => row.manufacturer !== "needs_review");
+  const hasUnassignedSelection = selectedRows.some((row) => row.manufacturer === "needs_review");
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.includes(row.id));
 
-  async function assignRow(rowId: string, manufacturer: ActiveManufacturer) {
+  function toggleRow(rowId: string) {
+    setSelectedRowIds((currentIds) =>
+      currentIds.includes(rowId) ? currentIds.filter((id) => id !== rowId) : [...currentIds, rowId]
+    );
+  }
+
+  function toggleAllVisible() {
+    if (allVisibleSelected) {
+      setSelectedRowIds((currentIds) => currentIds.filter((id) => !visibleRows.some((row) => row.id === id)));
+      return;
+    }
+
+    setSelectedRowIds((currentIds) => [...new Set([...currentIds, ...visibleRows.map((row) => row.id)])]);
+  }
+
+  async function assignSelectedManufacturer() {
+    if (!selectedRows.length) {
+      return;
+    }
+
+    const rowIds = selectedRows.map((row) => row.id);
     setRows((currentRows) =>
       currentRows.map((row) =>
-        row.id === rowId
+        rowIds.includes(row.id)
           ? {
               ...row,
-              manufacturer,
+              manufacturer: bulkManufacturer,
               productionStatus: "draft",
-              routingReason: `Manuell zu ${manufacturerLabels[manufacturer]} zugeordnet.`,
+              routingReason: `Manuell zu ${manufacturerLabels[bulkManufacturer]} zugeordnet.`,
             }
           : row
       )
     );
-    setSelectedManufacturer(manufacturer);
     setMessage(null);
 
     if (!onAssignManufacturer) {
       return;
     }
 
-    setSavingAction(`assign-${rowId}`);
+    setSavingAction("assign");
 
     try {
-      const result = await onAssignManufacturer({ rowId, manufacturer });
-      setMessage(result.ok ? `Artikel wurde ${manufacturerLabels[manufacturer]} zugeordnet.` : result.error ?? "Zuordnung konnte nicht gespeichert werden.");
+      const results = await Promise.all(
+        rowIds.map((rowId) => onAssignManufacturer({ rowId, manufacturer: bulkManufacturer }))
+      );
+      const failed = results.find((result) => !result.ok);
+      setMessage(failed?.error ?? `${rowIds.length} Artikel wurden ${manufacturerLabels[bulkManufacturer]} zugeordnet.`);
     } catch {
-      setMessage("Zuordnung konnte nicht gespeichert werden.");
+      setMessage("Hersteller konnte nicht gespeichert werden.");
     } finally {
       setSavingAction(null);
     }
   }
 
+  function exportSelectedXlsx() {
+    const groups = groupByManufacturer(assignedSelectedRows);
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const [manufacturer, manufacturerRows] of groups) {
+      downloadProductionXlsx(manufacturer, sortProductionRowsForExport(manufacturer, manufacturerRows), today);
+    }
+  }
+
   async function markSelectedAsSent() {
-    if (!activeManufacturer || !selectedReadyRows.length || hasExportBlockers) {
+    if (!assignedSelectedRows.length) {
       return;
     }
 
+    const groups = groupByManufacturer(assignedSelectedRows);
+    const sentRowIds = assignedSelectedRows.map((row) => row.id);
     const now = new Date().toISOString().slice(0, 10);
-    const rowIds = selectedReadyRows.map((row) => row.id);
 
     setRows((currentRows) =>
       currentRows.map((row) =>
-        rowIds.includes(row.id)
+        sentRowIds.includes(row.id)
           ? {
               ...row,
               productionStatus: "sent",
@@ -262,6 +184,7 @@ export function ProductionWorkspace({
           : row
       )
     );
+    setSelectedRowIds((currentIds) => currentIds.filter((id) => !sentRowIds.includes(id)));
     setMessage(null);
 
     if (!onSendBatch) {
@@ -271,85 +194,95 @@ export function ProductionWorkspace({
     setSavingAction("send");
 
     try {
-      const result = await onSendBatch({
-        manufacturer: activeManufacturer,
-        rowIds,
-      });
-      setMessage(result.ok ? "Artikel wurden als an Hersteller gesendet markiert." : result.error ?? "Artikel konnten nicht gesendet werden.");
+      const results = await Promise.all(
+        [...groups.entries()].map(([manufacturer, manufacturerRows]) =>
+          onSendBatch({
+            manufacturer,
+            rowIds: manufacturerRows.map((row) => row.id),
+          })
+        )
+      );
+      const failed = results.find((result) => !result.ok);
+      setMessage(failed?.error ?? `${sentRowIds.length} Artikel als gesendet markiert.`);
     } catch {
-      setMessage("Artikel konnten nicht gesendet werden.");
+      setMessage("Artikel konnten nicht als gesendet markiert werden.");
     } finally {
       setSavingAction(null);
     }
   }
 
-  function exportSelectedXlsx() {
-    if (!activeManufacturer || !selectedReadyRows.length || hasExportBlockers) {
-      return;
-    }
-
-    downloadProductionXlsx(activeManufacturer, sortProductionRowsForExport(activeManufacturer, selectedReadyRows), new Date().toISOString().slice(0, 10));
-  }
-
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
-          <CardContent className="p-5">
-            <p className="text-sm text-slate-500">Bereit zum Senden</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{readyRows.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
-          <CardContent className="p-5">
-            <p className="text-sm text-slate-500">An Hersteller gesendet</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{sentRows.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
-          <CardContent className="p-5">
-            <p className="text-sm text-slate-500">Prufen</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{rows.filter((row) => row.manufacturer === "needs_review").length}</p>
-          </CardContent>
-        </Card>
-      </section>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 border-b border-slate-800 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-sm font-medium text-cyan-200">{readyRows.length} Artikel bereit für Produktion</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {selectedRows.length ? `${selectedRows.length} Artikel ausgewählt` : "Artikel auswählen, XLSX exportieren und als gesendet markieren."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowHistory((current) => !current)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-white"
+        >
+          Gesendete Produktionen anzeigen
+          <ChevronDown className={`h-4 w-4 transition ${showHistory ? "rotate-180" : ""}`} />
+        </button>
+      </div>
 
-      {message ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">{message}</div>
-      ) : null}
-
-      <Section
-        title="Bereit zum Senden"
-        subtitle="Bezahlte Artikel mit freigegebenen Druckdaten, die noch nicht an den Hersteller gesendet wurden."
-      >
-        <ProductionTable
-          rows={readyRows}
-          emptyTitle="Keine Artikel bereit."
-          emptyText="Sobald Zahlung und Druckdaten freigegeben sind, erscheinen die Artikel hier."
-          actionsForRow={(row) => (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setSelectedManufacturer(row.manufacturer)}
-              className="rounded-lg border-slate-800 bg-slate-900 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-            >
-              Hersteller öffnen
-            </Button>
-          )}
-        />
-      </Section>
-
-      <Section
-        title="Hersteller"
-        subtitle="Waehle einen Hersteller, exportiere die XLSX-Liste und markiere die Artikel danach als gesendet."
-        action={
-          activeManufacturer ? (
+      <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+        <CardContent className="space-y-4 p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap gap-2">
+              {manufacturerFilters.map((filter) => {
+                const active = selectedFilter === filter.id;
+                const count = readyRows.filter((row) => filter.id === "all" || row.manufacturer === filter.id).length;
+
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setSelectedFilter(filter.id)}
+                    className={`rounded-xl border px-3 py-2 text-sm transition ${
+                      active
+                        ? "border-cyan-300/30 bg-cyan-300/10 text-white"
+                        : "border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-white"
+                    }`}
+                  >
+                    {filter.label} <span className="text-slate-500">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={bulkManufacturer}
+                onChange={(event) => setBulkManufacturer(event.target.value as ActiveManufacturer)}
+                className="h-10 rounded-xl border border-slate-800 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-300/40"
+                aria-label="Hersteller auswählen"
+              >
+                {assignableManufacturers.map((manufacturer) => (
+                  <option key={manufacturer.id} value={manufacturer.id}>
+                    {manufacturer.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={assignSelectedManufacturer}
+                disabled={!selectedRows.length || savingAction === "assign"}
+                className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40"
+              >
+                <Check className="h-4 w-4" />
+                Hersteller ändern
+              </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={exportSelectedXlsx}
-                disabled={!selectedReadyRows.length || hasExportBlockers}
+                disabled={!assignedSelectedRows.length || hasUnassignedSelection}
                 className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40"
               >
                 <FileSpreadsheet className="h-4 w-4" />
@@ -358,96 +291,129 @@ export function ProductionWorkspace({
               <Button
                 type="button"
                 onClick={markSelectedAsSent}
-                disabled={!selectedReadyRows.length || hasExportBlockers || savingAction === "send"}
+                disabled={!assignedSelectedRows.length || hasUnassignedSelection || savingAction === "send"}
                 className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100 disabled:opacity-40"
               >
                 <Send className="h-4 w-4" />
-                {savingAction === "send" ? "Speichern..." : "An Hersteller gesendet"}
+                {savingAction === "send" ? "Speichern..." : "Als gesendet markieren"}
               </Button>
             </div>
-          ) : null
-        }
-      >
-        <div className="mb-4 flex flex-wrap gap-2">
-          {manufacturerFilters.map((filter) => {
-            const active = selectedManufacturer === filter.id;
-            const count = rows.filter((row) => row.manufacturer === filter.id).length;
+          </div>
 
-            return (
-              <button
-                key={filter.id}
-                type="button"
-                onClick={() => setSelectedManufacturer(filter.id)}
-                className={`rounded-xl border px-3 py-2 text-sm transition ${
-                  active
-                    ? "border-cyan-300/30 bg-cyan-300/10 text-white"
-                    : "border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-white"
-                }`}
-              >
-                {filter.label} <span className="text-slate-500">({count})</span>
-              </button>
-            );
-          })}
-        </div>
+          {hasUnassignedSelection ? (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              Bitte zuerst einen Hersteller für die ausgewählten Artikel setzen.
+            </div>
+          ) : null}
+          {message ? <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">{message}</div> : null}
 
-        {selectedManufacturer === "needs_review" ? (
-          <ProductionTable
-            rows={selectedRows}
-            emptyTitle="Keine Artikel zu prufen."
-            emptyText="Alle Artikel sind einem Hersteller zugeordnet."
-            actionsForRow={(row) => (
-              <div className="flex flex-wrap gap-2">
-                {manufacturers.map((manufacturer) => (
-                  <Button
-                    key={manufacturer.id}
-                    type="button"
-                    variant="outline"
-                    onClick={() => assignRow(row.id, manufacturer.id)}
-                    disabled={savingAction === `assign-${row.id}`}
-                    className="rounded-lg border-slate-800 bg-slate-900 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                  >
-                    {manufacturer.name}
-                  </Button>
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="min-w-[82rem] w-full border-collapse text-left text-sm">
+              <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="w-12 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 accent-cyan-300"
+                      aria-label="Alle sichtbaren Artikel auswählen"
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">Bestellung</th>
+                  <th className="px-4 py-3 font-medium">Kunde</th>
+                  <th className="px-4 py-3 font-medium">Produkt</th>
+                  <th className="px-4 py-3 font-medium">Größe</th>
+                  <th className="px-4 py-3 font-medium">Material</th>
+                  <th className="px-4 py-3 font-medium">Konfektion</th>
+                  <th className="px-4 py-3 font-medium">Stück</th>
+                  <th className="px-4 py-3 font-medium">Hersteller</th>
+                  <th className="px-4 py-3 font-medium">Druckdatei</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-800 bg-slate-950/30">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedRowIds.includes(row.id)}
+                        onChange={() => toggleRow(row.id)}
+                        className="h-4 w-4 accent-cyan-300"
+                        aria-label={`${row.orderId} auswählen`}
+                      />
+                    </td>
+                    <td className="px-4 py-3 font-medium text-cyan-100">
+                      <Link href={`/orders/${row.orderId}`} className="underline-offset-4 hover:underline">
+                        {row.orderId}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">{row.customer}</td>
+                    <td className="px-4 py-3 text-white">{row.productName}</td>
+                    <td className="px-4 py-3 text-slate-300">{row.size}</td>
+                    <td className="px-4 py-3 text-slate-300">{row.material}</td>
+                    <td className="px-4 py-3 text-slate-300">{row.finishing}</td>
+                    <td className="px-4 py-3 text-slate-200">{row.quantity}</td>
+                    <td className="px-4 py-3 text-slate-300">{manufacturerLabel(row.manufacturer)}</td>
+                    <td className="px-4 py-3 text-slate-300">{primaryPrintFileLabel(row)}</td>
+                  </tr>
                 ))}
-              </div>
-            )}
-          />
-        ) : (
-          <>
-            {hasExportBlockers ? (
-              <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                <AlertTriangle className="mt-0.5 h-4 w-4" />
-                <p>
-                  Einige Artikel sind noch nicht exportierbar. Bitte Zahlung, Hersteller und freigegebene Druckdaten prufen.
-                </p>
-              </div>
-            ) : selectedReadyRows.length ? (
-              <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-                <CheckCircle2 className="h-4 w-4" />
-                <p>{selectedReadyRows.length} Artikel bereit fur {manufacturerLabels[selectedManufacturer]}.</p>
+              </tbody>
+            </table>
+            {!visibleRows.length ? (
+              <div className="border-t border-slate-800 bg-slate-950/30 p-8 text-center">
+                <p className="text-sm font-medium text-white">Keine Artikel in dieser Ansicht.</p>
+                <p className="mt-2 text-sm text-slate-500">Sobald ein Artikel bezahlt ist und freigegebene Druckdaten hat, erscheint er hier.</p>
               </div>
             ) : null}
-            <ProductionTable
-              rows={selectedRows}
-              emptyTitle="Keine Artikel fuer diesen Hersteller."
-              emptyText="Waehle einen anderen Hersteller oder ordne Artikel unter 'Prufen' zu."
-            />
-          </>
-        )}
-      </Section>
+          </div>
+        </CardContent>
+      </Card>
 
-      <Section
-        title="An Hersteller gesendet"
-        subtitle="Interner Produktionsstatus. Versand und Tracking bleiben ein separater Prozess."
-      >
-        <ProductionTable
-          rows={sentRows}
-          emptyTitle="Noch nichts gesendet."
-          emptyText="Gesendete Artikel erscheinen hier mit internem Produktionsstatus."
-          showSentDate
-          actionsForRow={() => <span className="text-xs text-slate-500">Intern gesendet</span>}
-        />
-      </Section>
+      {showHistory ? (
+        <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+          <CardContent className="p-5">
+            <h2 className="text-xl font-semibold text-white">Gesendete Produktionen</h2>
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
+              <table className="min-w-[62rem] w-full border-collapse text-left text-sm">
+                <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Gesendet am</th>
+                    <th className="px-4 py-3 font-medium">Hersteller</th>
+                    <th className="px-4 py-3 font-medium">Bestellung</th>
+                    <th className="px-4 py-3 font-medium">Kunde</th>
+                    <th className="px-4 py-3 font-medium">Produkt</th>
+                    <th className="px-4 py-3 font-medium">Stück</th>
+                    <th className="px-4 py-3 font-medium">Druckdatei</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sentRows.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-800 bg-slate-950/30">
+                      <td className="px-4 py-3 text-slate-300">{row.sentAt && row.sentAt !== "-" ? row.sentAt : "-"}</td>
+                      <td className="px-4 py-3 text-slate-300">{manufacturerLabels[row.manufacturer]}</td>
+                      <td className="px-4 py-3 font-medium text-cyan-100">
+                        <Link href={`/orders/${row.orderId}`} className="underline-offset-4 hover:underline">
+                          {row.orderId}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">{row.customer}</td>
+                      <td className="px-4 py-3 text-white">{row.productName}</td>
+                      <td className="px-4 py-3 text-slate-200">{row.quantity}</td>
+                      <td className="px-4 py-3 text-slate-300">{primaryPrintFileLabel(row)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!sentRows.length ? (
+                <div className="border-t border-slate-800 bg-slate-950/30 p-8 text-center text-sm text-slate-500">
+                  Noch keine gesendeten Produktionen.
+                </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

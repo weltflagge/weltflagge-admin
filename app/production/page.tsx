@@ -12,9 +12,9 @@ export default async function ProductionPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-medium text-[#8095ff]">Produktion</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Hersteller-Versand</h1>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Bereit für Produktion</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-            Bezahlte Artikel mit freigegebenen Druckdaten exportieren und intern als an den Hersteller gesendet markieren.
+            Was heute an Hersteller gesendet werden kann: Artikel auswählen, XLSX exportieren und als gesendet markieren.
             Datenquelle: {source === "database" ? "Postgres" : "Mock-Daten"}.
           </p>
         </div>

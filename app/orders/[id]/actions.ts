@@ -100,6 +100,14 @@ const dbPaymentStatusByUiStatus: Record<Order["paymentStatus"], "PAID" | "OPEN">
   Open: "OPEN",
 };
 
+const reopensProductionStatuses = new Set<OrderStatus>([
+  "Payment open",
+  "Print files missing",
+  "Print files review",
+  "Customer reply needed",
+  "Approval missing",
+]);
+
 function formatTimestamp(date: Date) {
   return new Intl.DateTimeFormat("sv-SE", {
     year: "numeric",
@@ -159,6 +167,24 @@ export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Pro
         checkedBy: "Operator",
       },
     });
+
+    if (status === "MISSING" || status === "RECEIVED" || status === "PROBLEM") {
+      await tx.orderItemProductionState.updateMany({
+        where: { orderItemId: orderItem.id },
+        data: {
+          status: "DRAFT",
+          sentAt: null,
+          currentBatchId: null,
+        },
+      });
+
+      await tx.order.update({
+        where: { id: orderItem.orderId },
+        data: {
+          status: status === "MISSING" ? "PRINT_FILES_MISSING" : status === "RECEIVED" ? "PRINT_FILES_REVIEW" : "CUSTOMER_REPLY_NEEDED",
+        },
+      });
+    }
 
     return tx.activityLog.create({
       data: {
@@ -369,6 +395,17 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
         },
       },
     });
+
+    if (reopensProductionStatuses.has(input.status)) {
+      await tx.orderItemProductionState.updateMany({
+        where: { orderItem: { orderId: order.id } },
+        data: {
+          status: "DRAFT",
+          sentAt: null,
+          currentBatchId: null,
+        },
+      });
+    }
 
     return tx.activityLog.create({
       data: {

@@ -181,14 +181,88 @@ function parseLineItem(line: string, index: number): AngebotDraftItem | null {
   };
 }
 
+function parseItemBlock(block: string, index: number): AngebotDraftItem | null {
+  const normalized = block.replace(/\s+/g, " ").trim();
+  const itemMatch = normalized.match(/^(\d+)\.\s+(.+?)(?=\s+\d+(?:,\d+)?\s*Stk\b|\s+\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:EUR|€)|$)/i);
+
+  if (!itemMatch) {
+    return parseLineItem(block, index);
+  }
+
+  const productName = itemMatch[2].trim();
+  const quantity = findFirst(normalized, [/\b(\d+(?:,\d+)?)\s*Stk\b/i]);
+  const prices = [...normalized.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:EUR|€)?/gi)].map((match) => normalizeMoney(match[1]));
+  const itemType = classifyAngebotItem(productName, normalized);
+  const size = detectSize(normalized);
+  const material = detectMaterial(normalized);
+  const finishing = detectFinishing(normalized);
+  const uncertainFields = [
+    !productName ? "productName" : "",
+    !quantity ? "quantity" : "",
+    itemType === "production_item" && !size ? "size" : "",
+    itemType === "production_item" && !material ? "material" : "",
+  ].filter(Boolean);
+
+  return {
+    id: `line-${index + 1}`,
+    lineNumber: Number(itemMatch[1]),
+    itemType,
+    productName,
+    sku: findFirst(normalized, [/(?:artikelnummer|sku)[:\s]+([A-Z0-9-]+)/i]),
+    quantity: quantity ? quantity.replace(",", ".") : "1",
+    size,
+    material,
+    finishing,
+    unitPrice: prices[0] ?? "",
+    totalPrice: prices.at(-1) ?? "",
+    notes: itemType === "production_item" ? "" : normalized.replace(productName, "").trim(),
+    uncertainFields,
+  };
+}
+
+function getPositionBlocks(lines: string[]) {
+  const blocks: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    if (/^\d+\.\s+/.test(line)) {
+      if (current.length > 0) {
+        blocks.push(current.join("\n"));
+      }
+
+      current = [line];
+      continue;
+    }
+
+    if (current.length > 0) {
+      if (/^(friedrich|angebot|datum|ihre kundennummer|ihr ansprechpartner|\d+\/\d+|--)/i.test(line)) {
+        blocks.push(current.join("\n"));
+        current = [];
+        continue;
+      }
+
+      current.push(line);
+    }
+  }
+
+  if (current.length > 0) {
+    blocks.push(current.join("\n"));
+  }
+
+  return blocks;
+}
+
 function parseItems(text: string) {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const candidates = lines
-    .map((line, index) => parseLineItem(line, index))
+  const blockCandidates = getPositionBlocks(lines)
+    .map((block, index) => parseItemBlock(block, index))
     .filter((item): item is AngebotDraftItem => Boolean(item));
+  const candidates = blockCandidates.length > 0
+    ? blockCandidates
+    : lines.map((line, index) => parseLineItem(line, index)).filter((item): item is AngebotDraftItem => Boolean(item));
 
   const deduped = new Map<string, AngebotDraftItem>();
   for (const item of candidates) {
@@ -203,8 +277,11 @@ function parseItems(text: string) {
 
 function detectAddress(text: string) {
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-  const emailIndex = lines.findIndex((line) => /@/.test(line));
-  const addressLines = lines.slice(Math.max(0, emailIndex - 5), Math.max(0, emailIndex)).filter((line) => !/angebot|datum|kund/i.test(line));
+  const senderIndex = lines.findIndex((line) => /^Friedrich\s*&\s*Rick GbR\s*-/i.test(line));
+  const addressLines =
+    senderIndex >= 0
+      ? lines.slice(senderIndex + 1, senderIndex + 7).filter((line) => !/^Deutschland$/i.test(line))
+      : lines.slice(0, 8).filter((line) => !/angebot|datum|kund|friedrich|rick/i.test(line));
   const postalLine = addressLines.find((line) => /\b\d{5}\b/.test(line)) ?? "";
   const postalMatch = postalLine.match(/(\d{5})\s+(.+)/);
 
@@ -265,4 +342,3 @@ export function parseAngebotText(text: string, sourceFileName: string): AngebotD
     items,
   };
 }
-

@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { createRequire } from "node:module";
 import { parseAngebotText, type AngebotDraft } from "@/src/lib/angebot-parser";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 import type { OrderItemType } from "@/src/types/order";
@@ -15,6 +16,8 @@ type CreateImportedOrderResult = {
   ok: boolean;
   error?: string;
 };
+
+const require = createRequire(import.meta.url);
 
 const itemTypeMap: Record<OrderItemType, "PRODUCTION_ITEM" | "ACCESSORY_ITEM" | "SERVICE_ITEM" | "SHIPPING_ITEM"> = {
   production_item: "PRODUCTION_ITEM",
@@ -62,7 +65,7 @@ function inferManufacturer(input: { productName: string; material: string; sku: 
 }
 
 async function extractPdfText(file: File) {
-  const { PDFParse } = await import("pdf-parse");
+  const { PDFParse } = require("pdf-parse") as typeof import("pdf-parse");
   const parser = new PDFParse({ data: Buffer.from(await file.arrayBuffer()) });
   const result = await parser.getText();
   await parser.destroy();
@@ -239,4 +242,3 @@ export async function createOrderFromAngebot(input: AngebotDraft): Promise<Creat
 
   redirect(`/orders/${orderNumber}`);
 }
-

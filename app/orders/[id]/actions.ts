@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ActivityLogEntry, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, Order, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
 type PrintFileUpdateInput = {
@@ -33,6 +33,7 @@ type TrackingUpdateInput = {
 type EditableOrderUpdateInput = {
   orderNumber: string;
   status: OrderStatus;
+  paymentStatus: Order["paymentStatus"];
   priority: OrderPriority;
   customerName: string;
   customerEmail: string;
@@ -92,6 +93,11 @@ const dbPriorityByUiPriority: Record<OrderPriority, "NORMAL" | "HIGH" | "URGENT"
   normal: "NORMAL",
   high: "HIGH",
   urgent: "URGENT",
+};
+
+const dbPaymentStatusByUiStatus: Record<Order["paymentStatus"], "PAID" | "OPEN"> = {
+  Paid: "PAID",
+  Open: "OPEN",
 };
 
 function formatTimestamp(date: Date) {
@@ -336,6 +342,7 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
       where: { id: order.id },
       data: {
         status: dbAnyOrderStatusByUiStatus[input.status],
+        paymentStatus: dbPaymentStatusByUiStatus[input.paymentStatus],
         priority: dbPriorityByUiPriority[input.priority],
         customerName,
         customerEmail,

@@ -82,6 +82,7 @@ type TrackingUpdateAction = (input: {
 type OrderEditAction = (input: {
   orderNumber: string;
   status: OrderStatus;
+  paymentStatus: Order["paymentStatus"];
   priority: OrderPriority;
   customerName: string;
   customerEmail: string;
@@ -248,6 +249,7 @@ export function OrderDetailWorkspace({
   const router = useRouter();
   const [items, setItems] = useState<OrderItem[]>(order.items);
   const [status, setStatus] = useState<OrderStatus>(order.status);
+  const [paymentStatus, setPaymentStatus] = useState<Order["paymentStatus"]>(order.paymentStatus);
   const [priority, setPriority] = useState<OrderPriority>(order.priority);
   const [timeline, setTimeline] = useState<ActivityLogEntry[]>(order.timeline);
   const [customerDraft, setCustomerDraft] = useState({
@@ -447,7 +449,7 @@ export function OrderDetailWorkspace({
     }
 
     if (!onOrderEdit) {
-      addTimelineEntry("Order customer, shipping or workflow fields updated.");
+      addTimelineEntry("Order customer, shipping, payment or workflow fields updated.");
       setEditMessage("Order fields updated locally.");
       return;
     }
@@ -459,6 +461,7 @@ export function OrderDetailWorkspace({
       const result = await onOrderEdit({
         orderNumber: order.id,
         status,
+        paymentStatus,
         priority,
         customerName: customerDraft.name,
         customerEmail: customerDraft.email,
@@ -659,8 +662,8 @@ export function OrderDetailWorkspace({
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-4 text-right">
           <p className="text-sm text-cyan-100">{order.amount}</p>
-          <p className={order.paymentStatus === "Paid" ? "mt-1 text-xs text-emerald-300" : "mt-1 text-xs text-red-300"}>
-            {order.paymentStatus}
+          <p className={paymentStatus === "Paid" ? "mt-1 text-xs text-emerald-300" : "mt-1 text-xs text-red-300"}>
+            {paymentStatus}
           </p>
         </div>
       </header>
@@ -908,6 +911,13 @@ export function OrderDetailWorkspace({
                 </select>
               </label>
               <label className="block space-y-2 text-sm text-slate-400">
+                <span>Payment status</span>
+                <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as Order["paymentStatus"])} className={editInputClass}>
+                  <option value="Open">Open</option>
+                  <option value="Paid">Paid</option>
+                </select>
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
                 <span>Priority</span>
                 <select value={priority} onChange={(event) => setPriority(event.target.value as OrderPriority)} className={editInputClass}>
                   {editablePriorities.map((editablePriority) => (
@@ -991,13 +1001,13 @@ export function OrderDetailWorkspace({
                 <FileCheck2 className="h-4 w-4" />
                 {savingOrderEdit ? "Saving..." : "Save order changes"}
               </Button>
-              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Customer, shipping, status and priority can be changed after order intake."}</p>
+              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Customer, shipping, payment, status and priority can be changed after order intake."}</p>
             </div>
           </DetailCard>
 
           <DetailCard title="Status" icon={FileCheck2}>
             <div className="space-y-3">
-              <InfoRow label="Payment" value={order.paymentStatus} />
+              <InfoRow label="Payment" value={paymentStatus} />
               <InfoRow label="Druckdaten" value={allPrintFilesApproved ? "Ready" : "Open"} />
               <InfoRow label="Production" value={<StatusChip status={status} />} />
               <InfoRow label="Carrier" value={carrier || "-"} />

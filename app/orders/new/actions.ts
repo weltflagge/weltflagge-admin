@@ -52,11 +52,12 @@ type CreateOrderResult = {
   error?: string;
 };
 
-const sourceMap: Record<OrderSource, "WOOCOMMERCE_WELTFLAGGE" | "WOOCOMMERCE_PARTNER" | "EBAY" | "EMAIL"> = {
+const sourceMap: Record<OrderSource, "WOOCOMMERCE_WELTFLAGGE" | "WOOCOMMERCE_PARTNER" | "EBAY" | "EMAIL" | "ANGEBOT_PDF"> = {
   "woocommerce-weltflagge": "WOOCOMMERCE_WELTFLAGGE",
   "woocommerce-partner": "WOOCOMMERCE_PARTNER",
   ebay: "EBAY",
   email: "EMAIL",
+  "angebot-pdf": "ANGEBOT_PDF",
 };
 
 const priorityMap: Record<OrderPriority, "NORMAL" | "HIGH" | "URGENT"> = {

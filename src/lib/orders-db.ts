@@ -7,6 +7,7 @@ const sourceMap: Record<string, OrderSource> = {
   WOOCOMMERCE_PARTNER: "woocommerce-partner",
   EBAY: "ebay",
   EMAIL: "email",
+  ANGEBOT_PDF: "angebot-pdf",
 };
 
 const statusMap: Record<string, OrderStatus> = {
@@ -53,6 +54,13 @@ const printFileSideMap: Record<string, "front" | "back" | "general"> = {
   BACK: "back",
   GENERAL: "general",
 };
+
+const itemTypeMap = {
+  PRODUCTION_ITEM: "production_item",
+  ACCESSORY_ITEM: "accessory_item",
+  SERVICE_ITEM: "service_item",
+  SHIPPING_ITEM: "shipping_item",
+} as const;
 
 function inferManufacturer(row: {
   productName: string;
@@ -213,6 +221,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
         sku: item.sku ?? `line-${item.lineNumber}`,
         size: item.size ?? "-",
         quantity: item.quantity,
+        itemType: itemTypeMap[item.itemType] ?? "production_item",
         printFile: mapPrimaryPrintFile(item.printFiles),
         printFiles: item.printFiles.map(mapPrintFile),
         production: {
@@ -291,6 +300,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
         sku: item.sku ?? `line-${item.lineNumber}`,
         size: item.size ?? "-",
         quantity: item.quantity,
+        itemType: itemTypeMap[item.itemType] ?? "production_item",
         printFile: mapPrimaryPrintFile(item.printFiles),
         printFiles: item.printFiles.map(mapPrintFile),
         production: {

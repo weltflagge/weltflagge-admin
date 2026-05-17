@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { priorityLabels, sourceLabels } from "@/src/lib/mock-orders";
 import { manufacturerLabels } from "@/src/lib/mock-production";
-import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderPriority, OrderStatus, PrintFile, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, Order, OrderAddress, OrderItem, OrderItemType, OrderPriority, OrderStatus, PrintFile, PrintFileStatus } from "@/src/types/order";
 import type { ManufacturerId } from "@/src/types/production";
 import { StatusChip } from "./status-chip";
 
@@ -44,6 +44,13 @@ const editableOrderStatuses: OrderStatus[] = [
 const editablePriorities: OrderPriority[] = ["normal", "high", "urgent"];
 const editInputClass =
   "w-full rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10";
+
+const itemTypeLabels: Record<OrderItemType, string> = {
+  production_item: "Produktionsartikel",
+  accessory_item: "Zubehoer",
+  service_item: "Service",
+  shipping_item: "Versand",
+};
 
 type PrintFileUpdateAction = (input: {
   orderNumber: string;
@@ -296,7 +303,7 @@ export function OrderDetailWorkspace({
   const productionGroups = useMemo(() => {
     const groups = new Map<ManufacturerId, OrderItem[]>();
 
-    for (const item of items) {
+    for (const item of items.filter((currentItem) => (currentItem.itemType ?? "production_item") === "production_item")) {
       const manufacturer = item.production.manufacturer ?? "needs_review";
       groups.set(manufacturer, [...(groups.get(manufacturer) ?? []), item]);
     }
@@ -315,7 +322,9 @@ export function OrderDetailWorkspace({
   }, [items]);
   const splitAcrossManufacturers = productionGroups.length > 1;
   const hasSentProductionItems = items.some(
-    (item) => item.production.status === "sent" || item.production.status === "confirmed" || item.production.status === "produced" || Boolean(item.production.batchId)
+    (item) =>
+      (item.itemType ?? "production_item") === "production_item" &&
+      (item.production.status === "sent" || item.production.status === "confirmed" || item.production.status === "produced" || Boolean(item.production.batchId))
   );
   const archived = status === "Shipped" || status === "Completed";
 
@@ -753,6 +762,11 @@ export function OrderDetailWorkspace({
 
           <DetailCard title="Produktion" icon={Factory}>
             <div className="space-y-4">
+              {productionGroups.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">
+                  Dieser Auftrag enthaelt keine Produktionsartikel.
+                </div>
+              ) : null}
               {splitAcrossManufacturers ? (
                 <div className="flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-400/10 p-4">
                   <GitBranch className="mt-0.5 h-5 w-5 text-violet-100" />
@@ -865,9 +879,12 @@ export function OrderDetailWorkspace({
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.8fr_0.9fr]">
                       <div>
                         <p className="font-medium text-white">{item.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {item.sku} - {item.size} - Stueck {item.quantity}
-                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span>{item.sku} - {item.size} - Stueck {item.quantity}</span>
+                          <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-300">
+                            {itemTypeLabels[item.itemType ?? "production_item"]}
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <p className="text-xs uppercase tracking-wide text-slate-500">Produktion</p>

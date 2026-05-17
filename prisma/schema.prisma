@@ -11,6 +11,7 @@ enum OrderSource {
   WOOCOMMERCE_PARTNER
   EBAY
   EMAIL
+  ANGEBOT_PDF
 }
 
 enum OrderStatus {
@@ -52,6 +53,13 @@ enum PrintFileSide {
   FRONT
   BACK
   GENERAL
+}
+
+enum OrderItemType {
+  PRODUCTION_ITEM
+  ACCESSORY_ITEM
+  SERVICE_ITEM
+  SHIPPING_ITEM
 }
 
 enum ManufacturerCode {
@@ -146,6 +154,7 @@ model OrderItem {
   quantity        Int
   finishing       String?
   unitAmountCents Int?
+  itemType        OrderItemType             @default(PRODUCTION_ITEM)
   notes           String?
   printFiles      PrintFile[]
   productionState OrderItemProductionState?

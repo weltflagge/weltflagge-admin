@@ -98,6 +98,9 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
 
   const prisma = getPrisma();
   const items = await prisma.orderItem.findMany({
+    where: {
+      itemType: "PRODUCTION_ITEM",
+    },
     include: {
       order: true,
       printFiles: true,

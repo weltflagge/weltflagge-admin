@@ -17,6 +17,10 @@ function PriorityDot({ priority }: { priority: OrderPriority }) {
 
 export function OrderCard({ order }: OrderCardProps) {
   const primaryItem = order.items[0];
+  const productionItems = order.items.filter((item) => (item.itemType ?? "production_item") === "production_item");
+  const accessoryItems = order.items.filter((item) => item.itemType === "accessory_item");
+  const serviceItems = order.items.filter((item) => item.itemType === "service_item");
+  const shippingItems = order.items.filter((item) => item.itemType === "shipping_item");
 
   return (
     <article className="group rounded-xl border border-[#27364f] bg-[#172033] p-4 transition hover:border-[#465fff]/45 hover:bg-[#1b263b]">
@@ -35,6 +39,22 @@ export function OrderCard({ order }: OrderCardProps) {
           <p className="mt-1 truncate text-xs text-slate-500">
             {primaryItem.name} - {primaryItem.size} - Qty {primaryItem.quantity}
           </p>
+          {order.items.some((item) => item.itemType && item.itemType !== "production_item") ? (
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-200">
+                Produktionsartikel {productionItems.length}
+              </span>
+              {accessoryItems.length ? (
+                <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-300">Zubehoer {accessoryItems.length}</span>
+              ) : null}
+              {serviceItems.length ? (
+                <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-300">Service {serviceItems.length}</span>
+              ) : null}
+              {shippingItems.length ? (
+                <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-300">Versand {shippingItems.length}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-3 md:text-right">

@@ -17,6 +17,7 @@ export const sourceLabels: Record<OrderSource, string> = {
   "woocommerce-partner": "Woo shop 2",
   ebay: "eBay",
   email: "E-Mail",
+  "angebot-pdf": "Angebot PDF",
 };
 
 export const priorityLabels: Record<OrderPriority, string> = {

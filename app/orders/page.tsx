@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import Link from "next/link";
-import { PlusCircle } from "lucide-react";
+import { FileUp, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OrdersWorkspace } from "@/src/components/orders/orders-workspace";
 import { getOrdersWithFallback } from "@/src/lib/orders-db";
@@ -23,6 +23,12 @@ export default async function OrdersPage() {
           <span className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
             {orders.length} orders
           </span>
+          <Button asChild variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
+            <Link href="/orders/import">
+              <FileUp className="h-4 w-4" />
+              Angebot importieren
+            </Link>
+          </Button>
           <Button asChild className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
             <Link href="/orders/new">
               <PlusCircle className="h-4 w-4" />

@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 
-export type OrderSource = "woocommerce-weltflagge" | "woocommerce-partner" | "ebay" | "email";
+export type OrderSource = "woocommerce-weltflagge" | "woocommerce-partner" | "ebay" | "email" | "angebot-pdf";
 
 export type OrderStatus =
   | "New"
@@ -34,12 +34,15 @@ export type OrderItemProduction = {
   status: OrderItemProductionStatus;
 };
 
+export type OrderItemType = "production_item" | "accessory_item" | "service_item" | "shipping_item";
+
 export type OrderItem = {
   id?: string;
   name: string;
   sku: string;
   size: string;
   quantity: number;
+  itemType?: OrderItemType;
   printFile: PrintFile;
   printFiles?: PrintFile[];
   production: OrderItemProduction;

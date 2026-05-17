@@ -212,7 +212,15 @@ function productionStatusClass(status: OrderItem["production"]["status"]) {
   return "border-amber-500/25 bg-amber-500/10 text-amber-200";
 }
 
+function isProductionItem(item: OrderItem) {
+  return (item.itemType ?? "production_item") === "production_item";
+}
+
 function getItemPrintFiles(item: OrderItem) {
+  if (!isProductionItem(item)) {
+    return [];
+  }
+
   return item.printFiles?.length ? item.printFiles : [item.printFile];
 }
 
@@ -283,7 +291,7 @@ export function OrderDetailWorkspace({
   const [fileNameDrafts, setFileNameDrafts] = useState<Record<string, string>>(
     Object.fromEntries(
       order.items.flatMap((item) =>
-        getItemPrintFiles(item).map((printFile) => [getPrintFileKey(item, printFile), printFile.fileName])
+        isProductionItem(item) ? getItemPrintFiles(item).map((printFile) => [getPrintFileKey(item, printFile), printFile.fileName]) : []
       )
     )
   );
@@ -296,14 +304,15 @@ export function OrderDetailWorkspace({
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState<string | null>(null);
 
+  const productionItems = useMemo(() => items.filter(isProductionItem), [items]);
   const allPrintFilesApproved = useMemo(
-    () => items.length > 0 && items.every((item) => getItemPrintFiles(item).every((printFile) => printFile.status === "approved")),
-    [items]
+    () => productionItems.length > 0 && productionItems.every((item) => getItemPrintFiles(item).every((printFile) => printFile.status === "approved")),
+    [productionItems]
   );
   const productionGroups = useMemo(() => {
     const groups = new Map<ManufacturerId, OrderItem[]>();
 
-    for (const item of items.filter((currentItem) => (currentItem.itemType ?? "production_item") === "production_item")) {
+    for (const item of productionItems) {
       const manufacturer = item.production.manufacturer ?? "needs_review";
       groups.set(manufacturer, [...(groups.get(manufacturer) ?? []), item]);
     }
@@ -319,7 +328,7 @@ export function OrderDetailWorkspace({
         batchIds,
       };
     });
-  }, [items]);
+  }, [productionItems]);
   const splitAcrossManufacturers = productionGroups.length > 1;
   const hasSentProductionItems = items.some(
     (item) =>
@@ -872,11 +881,12 @@ export function OrderDetailWorkspace({
             <div className="space-y-3">
               {items.map((item) => {
                 const itemKey = getItemKey(item);
+                const productionItem = isProductionItem(item);
                 const printFiles = getItemPrintFiles(item);
 
                 return (
                   <div key={itemKey} className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.8fr_0.9fr]">
+                    <div className={productionItem ? "grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.8fr_0.9fr]" : "grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.9fr]"}>
                       <div>
                         <p className="font-medium text-white">{item.name}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -886,70 +896,83 @@ export function OrderDetailWorkspace({
                           </span>
                         </div>
                       </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-500">Produktion</p>
-                        <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Nicht zugeordnet"}</p>
-                        <p className="mt-1 text-xs text-slate-500">{item.production.status}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-500">Druckdaten</p>
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {printFiles.map((printFile) => (
-                            <span key={getPrintFileKey(item, printFile)} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${printFileStatusClass(printFile.status)}`}>
-                              {printFile.side ?? "front"}: {printFile.status}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                      {printFiles.map((printFile) => {
-                        const side = printFile.side ?? "front";
-                        const printFileKey = getPrintFileKey(item, printFile);
-
-                        return (
-                          <div key={printFileKey} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3 lg:grid-cols-[7rem_1fr_11rem_auto]">
-                            <div>
-                              <p className="text-xs uppercase tracking-wide text-slate-500">Seite</p>
-                              <p className="mt-1 text-sm font-medium text-slate-200">{side}</p>
-                            </div>
-                            <input
-                              value={fileNameDrafts[printFileKey] ?? ""}
-                              onChange={(event) =>
-                                setFileNameDrafts((currentDrafts) => ({
-                                  ...currentDrafts,
-                                  [printFileKey]: event.target.value,
-                                }))
-                              }
-                              placeholder={`${side} Druckdatei eintragen...`}
-                              className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
-                            />
-                            <select
-                              value={printFile.status}
-                              onChange={(event) => updatePrintFileStatus(itemKey, side, event.target.value as PrintFileStatus)}
-                              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
-                              aria-label={`Druckdatenstatus fuer ${item.sku} ${side}`}
-                            >
-                              {printFileStatuses.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => updatePrintFileName(itemKey, side)}
-                              disabled={savingPrintFileKey === printFileKey}
-                              className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
-                            >
-                              {savingPrintFileKey === printFileKey ? "Speichern..." : "Druckdatei speichern"}
-                            </Button>
+                      {productionItem ? (
+                        <>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-500">Produktion</p>
+                            <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Nicht zugeordnet"}</p>
+                            <p className="mt-1 text-xs text-slate-500">{item.production.status}</p>
                           </div>
-                        );
-                      })}
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-500">Druckdaten</p>
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {printFiles.map((printFile) => (
+                                <span key={getPrintFileKey(item, printFile)} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${printFileStatusClass(printFile.status)}`}>
+                                  {printFile.side ?? "front"}: {printFile.status}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">Info</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-300">
+                            Diese Position bleibt nur in der Bestellung und wird nicht an die Produktion gesendet.
+                          </p>
+                        </div>
+                      )}
                     </div>
+
+                    {productionItem ? (
+                      <div className="mt-4 space-y-3">
+                        {printFiles.map((printFile) => {
+                          const side = printFile.side ?? "front";
+                          const printFileKey = getPrintFileKey(item, printFile);
+
+                          return (
+                            <div key={printFileKey} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3 lg:grid-cols-[7rem_1fr_11rem_auto]">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Seite</p>
+                                <p className="mt-1 text-sm font-medium text-slate-200">{side}</p>
+                              </div>
+                              <input
+                                value={fileNameDrafts[printFileKey] ?? ""}
+                                onChange={(event) =>
+                                  setFileNameDrafts((currentDrafts) => ({
+                                    ...currentDrafts,
+                                    [printFileKey]: event.target.value,
+                                  }))
+                                }
+                                placeholder={`${side} Druckdatei eintragen...`}
+                                className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
+                              />
+                              <select
+                                value={printFile.status}
+                                onChange={(event) => updatePrintFileStatus(itemKey, side, event.target.value as PrintFileStatus)}
+                                className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
+                                aria-label={`Druckdatenstatus fuer ${item.sku} ${side}`}
+                              >
+                                {printFileStatuses.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => updatePrintFileName(itemKey, side)}
+                                disabled={savingPrintFileKey === printFileKey}
+                                className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+                              >
+                                {savingPrintFileKey === printFileKey ? "Speichern..." : "Druckdatei speichern"}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

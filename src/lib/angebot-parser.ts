@@ -1,9 +1,14 @@
+import { getCatalogEntry, getCatalogMaterial, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import type { OrderItemType } from "@/src/types/order";
 
 export type AngebotDraftItem = {
   id: string;
   lineNumber: number;
   itemType: OrderItemType;
+  productType: ProductTypeId;
+  materialId: string;
+  printMode: PrintMode;
+  shape: string;
   productName: string;
   sku: string;
   quantity: string;
@@ -130,6 +135,116 @@ function cleanProductName(value: string) {
     .trim();
 }
 
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function detectAngebotProductType(productName: string, details = ""): ProductTypeId {
+  const haystack = normalizeText(`${productName} ${details}`);
+
+  if (haystack.includes("beachflag") || haystack.includes("beach flag")) {
+    return "beachflag";
+  }
+
+  if (haystack.includes("bauzaun")) {
+    return "bauzaunbanner";
+  }
+
+  if (haystack.includes("roll up") || haystack.includes("rollup") || haystack.includes("x banner") || haystack.includes("xbanner")) {
+    return "rollup_xbanner";
+  }
+
+  if (haystack.includes("banner") || haystack.includes("plane") || haystack.includes("mesh")) {
+    return "banner";
+  }
+
+  return "flag";
+}
+
+export function detectAngebotShape(productType: ProductTypeId, details = "") {
+  if (productType !== "beachflag") {
+    return "";
+  }
+
+  const haystack = normalizeText(details);
+  const entry = getCatalogEntry("beachflag");
+  return entry.shapes?.find((shape) => haystack.includes(normalizeText(shape))) ?? entry.shapes?.[0] ?? "";
+}
+
+export function detectAngebotMaterialId(productType: ProductTypeId, details = "") {
+  const entry = getCatalogEntry(productType);
+  const haystack = normalizeText(details);
+
+  if (productType === "beachflag" && haystack.includes("airtex")) {
+    return "beachflag-airtex-mesh-single";
+  }
+
+  if ((productType === "banner" || productType === "bauzaunbanner") && haystack.includes("mesh")) {
+    return productType === "bauzaunbanner" ? "bauzaun-mesh-banner" : "mesh-banner";
+  }
+
+  if ((productType === "banner" || productType === "bauzaunbanner") && haystack.includes("textil")) {
+    return productType === "bauzaunbanner" ? "bauzaun-textilbanner" : "textilbanner";
+  }
+
+  if (productType === "banner" && haystack.includes("poly")) {
+    return "polymesh";
+  }
+
+  if (productType === "bauzaunbanner" && haystack.includes("poly")) {
+    return "bauzaun-polymesh";
+  }
+
+  const material = entry.materials.find((option) => {
+    const label = normalizeText(option.label);
+    return haystack.includes(label) || label.split(/\s+/).some((part) => part.length >= 5 && haystack.includes(part));
+  });
+
+  if (material) {
+    return material.id;
+  }
+
+  return entry.materials[0].id;
+}
+
+export function detectAngebotPrintMode(productType: ProductTypeId, materialId: string, details = ""): PrintMode {
+  const haystack = normalizeText(details);
+  const requestedMode =
+    haystack.includes("beidseitig") ||
+    haystack.includes("beidseitig bedruckt") ||
+    haystack.includes("doppelseitig") ||
+    haystack.includes("2 seitig") ||
+    haystack.includes("zweiseitig")
+      ? "double_sided"
+      : "single_sided";
+  const material = getCatalogMaterial(productType, materialId);
+
+  return material.allowedPrintModes.includes(requestedMode) ? requestedMode : material.allowedPrintModes[0];
+}
+
+export function detectAngebotSize(productType: ProductTypeId, shape: string, details = "") {
+  const entry = getCatalogEntry(productType);
+  const haystack = normalizeText(details);
+
+  if (entry.sizeMode === "preset") {
+    const allowedSizes = entry.sizes?.[shape] ?? entry.defaultSizes ?? [];
+    const exactSize = allowedSizes.find((size) => new RegExp(`\\b${size.toLowerCase()}\\b`).test(haystack));
+    return exactSize ?? allowedSizes[0] ?? "";
+  }
+
+  return detectSize(details) || entry.defaultSize || "";
+}
+
 export function classifyAngebotItem(productName: string, details = ""): OrderItemType {
   const haystack = `${productName} ${details}`.toLowerCase();
 
@@ -195,10 +310,15 @@ function parseLineItem(line: string, index: number): AngebotDraftItem | null {
     .trim();
   const productName = cleanProductName(cleanName.replace(/^(?:artikel|produkt)[:\s]+/i, ""));
   const itemType = classifyAngebotItem(productName, body);
+  const productType = detectAngebotProductType(productName, body);
+  const shape = detectAngebotShape(productType, body);
+  const materialId = detectAngebotMaterialId(productType, body);
+  const printMode = detectAngebotPrintMode(productType, materialId, body);
+  const size = detectAngebotSize(productType, shape, body);
   const uncertainFields = [
     !productName ? "productName" : "",
     !quantity ? "quantity" : "",
-    itemType === "production_item" && !detectSize(body) ? "size" : "",
+    itemType === "production_item" && !size ? "size" : "",
     itemType === "production_item" && !detectMaterial(body) ? "material" : "",
   ].filter(Boolean);
 
@@ -206,11 +326,15 @@ function parseLineItem(line: string, index: number): AngebotDraftItem | null {
     id: `line-${index + 1}`,
     lineNumber: Number(itemMatch?.[1] ?? index + 1),
     itemType,
+    productType,
+    materialId,
+    printMode,
+    shape,
     productName: productName || body.slice(0, 80),
     sku: "",
     quantity: quantity || "1",
-    size: detectSize(body),
-    material: detectMaterial(body),
+    size,
+    material: itemType === "production_item" ? getCatalogMaterial(productType, materialId).label : detectMaterial(body),
     finishing: detectFinishing(body),
     unitPrice: prices[0] ?? "",
     totalPrice: calculateTotalPrice(quantity || "1", prices[0] ?? ""),
@@ -236,8 +360,12 @@ function parseItemBlock(block: string, index: number): AngebotDraftItem | null {
   const quantity = findFirst(normalized, [/\b(\d+(?:,\d+)?)\s*Stk\b/i]);
   const prices = extractCurrencyAmounts(normalized);
   const itemType = classifyAngebotItem(productName, normalized);
-  const size = detectSize(normalized);
-  const material = detectMaterial(normalized);
+  const productType = detectAngebotProductType(productName, normalized);
+  const shape = detectAngebotShape(productType, normalized);
+  const materialId = detectAngebotMaterialId(productType, normalized);
+  const printMode = detectAngebotPrintMode(productType, materialId, normalized);
+  const size = detectAngebotSize(productType, shape, normalized);
+  const material = itemType === "production_item" ? getCatalogMaterial(productType, materialId).label : detectMaterial(normalized);
   const finishing = detectFinishing(normalized);
   const uncertainFields = [
     !productName ? "productName" : "",
@@ -250,6 +378,10 @@ function parseItemBlock(block: string, index: number): AngebotDraftItem | null {
     id: `line-${index + 1}`,
     lineNumber: Number(itemMatch[1]),
     itemType,
+    productType,
+    materialId,
+    printMode,
+    shape,
     productName,
     sku: findFirst(normalized, [/(?:artikelnummer|sku)[:\s]+([A-Z0-9-]+)/i]),
     quantity: quantity ? quantity.replace(",", ".") : "1",

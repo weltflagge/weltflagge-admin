@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeft, FileText, PlusCircle, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { getCatalogEntry, getCatalogMaterial, printModeLabels, productCatalog, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import type { AngebotDraft, AngebotDraftItem } from "@/src/lib/angebot-parser";
 import type { OrderItemType } from "@/src/types/order";
 
@@ -89,6 +90,10 @@ function createEmptyItem(index: number): AngebotDraftItem {
     id: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     lineNumber: index + 1,
     itemType: "production_item",
+    productType: "flag",
+    materialId: "fahnenstoff-115",
+    printMode: "single_sided",
+    shape: "",
     productName: "",
     sku: "",
     quantity: "1",
@@ -102,6 +107,36 @@ function createEmptyItem(index: number): AngebotDraftItem {
     verifiedSize: false,
     verifiedFinishing: false,
     uncertainFields: ["productName"],
+  };
+}
+
+function normalizeCatalogItem(item: AngebotDraftItem, patch: Partial<AngebotDraftItem>) {
+  const nextItem = { ...item, ...patch };
+  const productTypeChanged = patch.productType !== undefined && patch.productType !== item.productType;
+  const shapeChanged = patch.shape !== undefined && patch.shape !== item.shape;
+  const entry = getCatalogEntry(nextItem.productType);
+  const material = entry.materials.some((option) => option.id === nextItem.materialId)
+    ? getCatalogMaterial(nextItem.productType, nextItem.materialId)
+    : entry.materials[0];
+  const printMode = material.allowedPrintModes.includes(nextItem.printMode) ? nextItem.printMode : material.allowedPrintModes[0];
+  const shape = entry.shapes?.includes(nextItem.shape) ? nextItem.shape : entry.shapes?.[0] ?? "";
+  const allowedSizes = entry.sizeMode === "preset" ? entry.sizes?.[shape] ?? [] : [];
+  const size =
+    entry.sizeMode === "preset"
+      ? allowedSizes.includes(nextItem.size) && !shapeChanged
+        ? nextItem.size
+        : allowedSizes[0] ?? ""
+      : productTypeChanged
+        ? entry.defaultSize ?? nextItem.size
+        : nextItem.size;
+
+  return {
+    ...nextItem,
+    materialId: material.id,
+    material: material.label,
+    printMode,
+    shape,
+    size,
   };
 }
 
@@ -167,7 +202,7 @@ export function AngebotImportWorkspace({
                 return item;
               }
 
-              const nextItem = { ...item, ...patch };
+              const nextItem = normalizeCatalogItem(item, patch);
 
               if ((patch.quantity !== undefined || patch.unitPrice !== undefined) && patch.totalPrice === undefined) {
                 nextItem.totalPrice = calculateTotalPrice(nextItem.quantity, nextItem.unitPrice);
@@ -367,6 +402,17 @@ export function AngebotImportWorkspace({
                           ))}
                         </select>
                       </Field>
+                      {item.itemType === "production_item" ? (
+                        <Field label="Produkttyp">
+                          <select value={item.productType} onChange={(event) => updateItem(item.id, { productType: event.target.value as ProductTypeId })} className={inputClass}>
+                            {productCatalog.map((entry) => (
+                              <option key={entry.id} value={entry.id}>
+                                {entry.label}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      ) : null}
                       <Field label="Produkt" uncertain={item.uncertainFields.includes("productName")}>
                         <input value={item.productName} onChange={(event) => updateItem(item.id, { productName: event.target.value })} className={fieldClass(item.uncertainFields.includes("productName"))} />
                       </Field>
@@ -376,15 +422,55 @@ export function AngebotImportWorkspace({
                       <Field label="SKU">
                         <input value={item.sku} onChange={(event) => updateItem(item.id, { sku: event.target.value })} className={inputClass} />
                       </Field>
-                      <Field label="Groesse" uncertain={item.uncertainFields.includes("size")}>
-                        <input value={item.size} onChange={(event) => updateItem(item.id, { size: event.target.value })} className={fieldClass(item.uncertainFields.includes("size"))} />
-                      </Field>
-                      <Field label="Material" uncertain={item.uncertainFields.includes("material")}>
-                        <input value={item.material} onChange={(event) => updateItem(item.id, { material: event.target.value })} className={fieldClass(item.uncertainFields.includes("material"))} />
-                      </Field>
-                      <Field label="Konfektion">
-                        <input value={item.finishing} onChange={(event) => updateItem(item.id, { finishing: event.target.value })} className={inputClass} />
-                      </Field>
+                      {item.itemType === "production_item" && getCatalogEntry(item.productType).shapes ? (
+                        <Field label="Form">
+                          <select value={item.shape} onChange={(event) => updateItem(item.id, { shape: event.target.value })} className={inputClass}>
+                            {getCatalogEntry(item.productType).shapes?.map((shape) => (
+                              <option key={shape} value={shape}>
+                                {shape}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      ) : null}
+                      {item.itemType === "production_item" ? (
+                        <>
+                          <Field label="Groesse" uncertain={item.uncertainFields.includes("size")}>
+                            {getCatalogEntry(item.productType).sizeMode === "preset" ? (
+                              <select value={item.size} onChange={(event) => updateItem(item.id, { size: event.target.value })} className={fieldClass(item.uncertainFields.includes("size"))}>
+                                {(getCatalogEntry(item.productType).sizes?.[item.shape] ?? []).map((size) => (
+                                  <option key={size} value={size}>
+                                    {size}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input value={item.size} onChange={(event) => updateItem(item.id, { size: event.target.value })} className={fieldClass(item.uncertainFields.includes("size"))} />
+                            )}
+                          </Field>
+                          <Field label="Material" uncertain={item.uncertainFields.includes("material")}>
+                            <select value={item.materialId} onChange={(event) => updateItem(item.id, { materialId: event.target.value })} className={fieldClass(item.uncertainFields.includes("material"))}>
+                              {getCatalogEntry(item.productType).materials.map((material) => (
+                                <option key={material.id} value={material.id}>
+                                  {material.label}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Druck">
+                            <select value={item.printMode} onChange={(event) => updateItem(item.id, { printMode: event.target.value as PrintMode })} className={inputClass}>
+                              {getCatalogMaterial(item.productType, item.materialId).allowedPrintModes.map((mode) => (
+                                <option key={mode} value={mode}>
+                                  {printModeLabels[mode]}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Konfektion">
+                            <input value={item.finishing} onChange={(event) => updateItem(item.id, { finishing: event.target.value })} className={inputClass} />
+                          </Field>
+                        </>
+                      ) : null}
                       <Field label="Einzelpreis">
                         <input value={item.unitPrice} onChange={(event) => updateItem(item.id, { unitPrice: event.target.value })} className={inputClass} />
                       </Field>

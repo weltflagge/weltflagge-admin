@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createRequire } from "node:module";
 import { parseAngebotText, type AngebotDraft } from "@/src/lib/angebot-parser";
+import { getCatalogEntry, getCatalogMaterial, printModeLabels } from "@/src/lib/product-catalog";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 import type { OrderItemType } from "@/src/types/order";
 
@@ -143,7 +144,14 @@ export async function createOrderFromAngebot(input: AngebotDraft): Promise<Creat
   }
 
   const productionItems = items.filter((item) => item.itemType === "production_item");
-  const manufacturerCodes = [...new Set(productionItems.map((item) => manufacturerDbCodeByUiId[inferManufacturer(item)]))];
+  const manufacturerCodes = [
+    ...new Set(
+      productionItems.map((item) => {
+        const material = item.productType && item.materialId ? getCatalogMaterial(item.productType, item.materialId) : undefined;
+        return manufacturerDbCodeByUiId[material?.manufacturer ?? inferManufacturer(item)];
+      })
+    ),
+  ];
   const manufacturers = await Promise.all(
     manufacturerCodes.map((code) =>
       prisma.manufacturer.upsert({
@@ -204,27 +212,49 @@ export async function createOrderFromAngebot(input: AngebotDraft): Promise<Creat
       },
       items: {
         create: items.map((item) => {
-          const manufacturerCode = manufacturerDbCodeByUiId[inferManufacturer(item)];
+          const catalogMaterial =
+            item.itemType === "production_item" && item.productType && item.materialId
+              ? getCatalogMaterial(item.productType, item.materialId)
+              : undefined;
+          const manufacturerCode = manufacturerDbCodeByUiId[catalogMaterial?.manufacturer ?? inferManufacturer(item)];
+          const finishing = [
+            item.finishing.trim(),
+            item.itemType === "production_item" && item.shape?.trim() ? `Form: ${item.shape.trim()}` : "",
+            item.itemType === "production_item" && item.printMode ? printModeLabels[item.printMode] : "",
+          ]
+            .filter(Boolean)
+            .join(" | ");
 
           return {
             lineNumber: item.lineNumber,
             productName: item.productName,
             sku: item.sku.trim() || null,
-            material: item.material.trim() || null,
+            material: (catalogMaterial?.label ?? item.material.trim()) || null,
             size: item.size.trim() || null,
             quantity: item.quantity,
-            finishing: item.finishing.trim() || null,
+            finishing: finishing || null,
             unitAmountCents: parseAmountCents(item.unitPrice) || null,
             itemType: itemTypeMap[item.itemType],
             notes: item.notes.trim() || null,
             printFiles:
               item.itemType === "production_item"
                 ? {
-                    create: {
-                      side: "FRONT" as const,
-                      status: "MISSING" as const,
-                      source: "angebot_pdf",
-                    },
+                    create: [
+                      {
+                        side: "FRONT" as const,
+                        status: "MISSING" as const,
+                        source: "angebot_pdf",
+                      },
+                      ...(item.printMode === "double_sided"
+                        ? [
+                            {
+                              side: "BACK" as const,
+                              status: "MISSING" as const,
+                              source: "angebot_pdf",
+                            },
+                          ]
+                        : []),
+                    ],
                   }
                 : undefined,
             productionState:
@@ -233,7 +263,7 @@ export async function createOrderFromAngebot(input: AngebotDraft): Promise<Creat
                     create: {
                       status: "DRAFT" as const,
                       manufacturerId: manufacturerByCode.get(manufacturerCode)?.id,
-                      routingReason: "Angebot PDF import - bitte Hersteller bei Bedarf pruefen.",
+                      routingReason: `Angebot PDF import: ${item.productType ? getCatalogEntry(item.productType).label : "Produkt"} / ${catalogMaterial?.label ?? item.material}.`,
                     },
                   }
                 : undefined,

@@ -1,4 +1,5 @@
 import type { OrderItemProductionStatus, PrintFile } from "@/src/types/order";
+import type { Order } from "@/src/types/order";
 
 export type ManufacturerId = "opinion" | "logo_pl" | "mph_maciej" | "wmd" | "needs_review";
 
@@ -23,7 +24,9 @@ export type ProductionRow = {
   finishing: string;
   printFile: PrintFile;
   printFiles?: PrintFile[];
+  paymentStatus?: Order["paymentStatus"];
   productionStatus: OrderItemProductionStatus;
+  sentAt?: string;
   batchId?: string;
   deadline: string;
   notes: string;

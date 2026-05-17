@@ -142,6 +142,8 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
         side: printFileSideMap[printFile.side] ?? "front",
       })),
       productionStatus: mapProductionStatus(item.productionState?.status, manufacturer),
+      paymentStatus: item.order.paymentStatus === "PAID" ? "Paid" : "Open",
+      sentAt: formatDate(item.productionState?.sentAt ?? null),
       batchId: batch?.batchNumber ?? undefined,
       deadline: formatDate(item.order.deadlineAt),
       notes: item.notes ?? item.order.internalNotes ?? "",

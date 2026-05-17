@@ -212,6 +212,24 @@ export async function sendProductionBatch(input: {
       },
     });
 
+    const orderIds = await tx.orderItem.findMany({
+      where: { id: { in: rowIds } },
+      select: { orderId: true },
+      distinct: ["orderId"],
+    });
+
+    await tx.order.updateMany({
+      where: {
+        id: { in: orderIds.map((item) => item.orderId) },
+        status: {
+          notIn: ["SHIPPED", "COMPLETED", "CANCELLED"],
+        },
+      },
+      data: {
+        status: "IN_PRODUCTION",
+      },
+    });
+
     await tx.activityLog.create({
       data: {
         entityType: "PRODUCTION_BATCH",

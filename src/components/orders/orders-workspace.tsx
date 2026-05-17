@@ -1,14 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  priorityLabels,
-  sourceLabels,
-  statuses,
-} from "@/src/lib/mock-orders";
+import { priorityLabels, sourceLabels, statuses } from "@/src/lib/mock-orders";
+import { getOrderNextAction, orderNeedsAction } from "@/src/lib/order-overview";
 import type { Order, OrderPriority, OrderSource, OrderStatus } from "@/src/types/order";
 import { OrderCard } from "./order-card";
 
@@ -16,8 +13,8 @@ type StatusFilter = "all" | OrderStatus;
 type SourceFilter = "all" | OrderSource;
 type PriorityFilter = "all" | OrderPriority;
 type PaymentFilter = "all" | Order["paymentStatus"];
-type SortKey = "newest" | "deadline" | "priority" | "amount";
-type ScopeFilter = "active" | "shipped" | "closed" | "all";
+type SortKey = "newest" | "priority" | "amount";
+type QuickView = "active" | "needs_action" | "production" | "ready_to_ship" | "completed";
 
 const sourceOptions = Object.entries(sourceLabels) as Array<[OrderSource, string]>;
 const priorityOptions = Object.entries(priorityLabels) as Array<[OrderPriority, string]>;
@@ -27,6 +24,14 @@ const priorityRank: Record<OrderPriority, number> = {
   high: 2,
   normal: 1,
 };
+
+const quickViews: Array<{ id: QuickView; label: string }> = [
+  { id: "active", label: "Active" },
+  { id: "needs_action", label: "Needs action" },
+  { id: "production", label: "Production" },
+  { id: "ready_to_ship", label: "Ready to ship" },
+  { id: "completed", label: "Completed" },
+];
 
 function parseAmount(amount: string) {
   return Number(amount.replace(" EUR", "").replace(".", "").replace(",", "."));
@@ -67,13 +72,39 @@ function includesSearch(order: Order, search: string) {
     .includes(normalizedSearch);
 }
 
+function matchesQuickView(order: Order, view: QuickView) {
+  if (view === "active") {
+    return order.status !== "Shipped" && order.status !== "Completed";
+  }
+
+  if (view === "needs_action") {
+    return orderNeedsAction(order);
+  }
+
+  if (view === "production") {
+    return (
+      order.status === "In production" ||
+      getOrderNextAction(order).label === "In Produktion" ||
+      order.items.some((item) => item.production.status === "sent" || item.production.status === "confirmed")
+    );
+  }
+
+  if (view === "ready_to_ship") {
+    return order.status === "Ready to ship" || getOrderNextAction(order).label === "Versand vorbereiten";
+  }
+
+  return order.status === "Shipped" || order.status === "Completed";
+}
+
 function FilterButton({
   active,
   children,
+  count,
   onClick,
 }: {
   active: boolean;
   children: React.ReactNode;
+  count: number;
   onClick: () => void;
 }) {
   return (
@@ -86,58 +117,62 @@ function FilterButton({
           : "border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200"
       }`}
     >
-      {children}
+      {children} <span className={active ? "text-cyan-200/70" : "text-slate-600"}>{count}</span>
     </button>
   );
 }
 
+function SelectField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const selectClass =
+  "h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-200 outline-none focus:border-cyan-300/40";
+
 export function OrdersWorkspace({ orders }: { orders: Order[] }) {
   const [search, setSearch] = useState("");
-  const [scope, setScope] = useState<ScopeFilter>("active");
+  const [quickView, setQuickView] = useState<QuickView>("active");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [priority, setPriority] = useState<PriorityFilter>("all");
   const [payment, setPayment] = useState<PaymentFilter>("all");
-  const [needsActionOnly, setNeedsActionOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const quickCounts = useMemo(
+    () =>
+      Object.fromEntries(quickViews.map((view) => [view.id, orders.filter((order) => matchesQuickView(order, view.id)).length])) as Record<
+        QuickView,
+        number
+      >,
+    [orders]
+  );
 
   const filteredOrders = useMemo(() => {
     const result = orders.filter((order) => {
       const matchesSearch = includesSearch(order, search);
       const matchesStatus = status === "all" || order.status === status;
-      const matchesScope =
-        scope === "all" ||
-        (scope === "active" && order.status !== "Shipped" && order.status !== "Completed") ||
-        (scope === "shipped" && order.status === "Shipped") ||
-        (scope === "closed" && order.status === "Completed");
       const matchesSource = source === "all" || order.source === source;
       const matchesPriority = priority === "all" || order.priority === priority;
       const matchesPayment = payment === "all" || order.paymentStatus === payment;
-      const needsAction =
-        order.priority === "urgent" ||
-        order.paymentStatus === "Open" ||
-        order.status === "Customer reply needed" ||
-        order.status === "Approval missing" ||
-        order.status === "Print files missing";
 
-      return (
-        matchesSearch &&
-        matchesScope &&
-        matchesStatus &&
-        matchesSource &&
-        matchesPriority &&
-        matchesPayment &&
-        (!needsActionOnly || needsAction)
-      );
+      return matchesSearch && matchesQuickView(order, quickView) && matchesStatus && matchesSource && matchesPriority && matchesPayment;
     });
 
     return result.sort((a, b) => {
-      if (sort === "deadline") {
-        return a.deadline.localeCompare(b.deadline);
-      }
-
       if (sort === "priority") {
-        return priorityRank[b.priority] - priorityRank[a.priority] || a.deadline.localeCompare(b.deadline);
+        return priorityRank[b.priority] - priorityRank[a.priority] || getOrderSortDate(b).localeCompare(getOrderSortDate(a));
       }
 
       if (sort === "amount") {
@@ -146,66 +181,109 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
 
       return getOrderSortDate(b).localeCompare(getOrderSortDate(a)) || b.id.localeCompare(a.id);
     });
-  }, [needsActionOnly, orders, payment, priority, scope, search, sort, source, status]);
+  }, [orders, payment, priority, quickView, search, sort, source, status]);
 
-  const hasActiveFilters =
-    search ||
-    scope !== "active" ||
-    status !== "all" ||
-    source !== "all" ||
-    priority !== "all" ||
-    payment !== "all" ||
-    needsActionOnly ||
-    sort !== "newest";
+  const hasActiveFilters = search || quickView !== "active" || status !== "all" || source !== "all" || priority !== "all" || payment !== "all" || sort !== "newest";
+  const moreFilterCount = [status !== "all", source !== "all", priority !== "all", payment !== "all", sort !== "newest"].filter(Boolean).length;
 
   function resetFilters() {
     setSearch("");
-    setScope("active");
+    setQuickView("active");
     setStatus("all");
     setSource("all");
     setPriority("all");
     setPayment("all");
-    setNeedsActionOnly(false);
     setSort("newest");
+    setFiltersOpen(false);
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none backdrop-blur-xl">
-        <CardContent className="space-y-5 p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="relative w-full xl:max-w-xl">
-              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative w-full xl:max-w-lg">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search order, customer, product, source or status..."
-                className="w-full rounded-xl border border-slate-800 bg-slate-950/80 py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
+                placeholder="Auftrag, Kunde oder Produkt suchen..."
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950/80 pl-10 pr-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300">
+              <span className="inline-flex h-9 items-center gap-1 rounded-full border border-slate-800 bg-slate-900 px-3 text-xs font-medium text-slate-300">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 {filteredOrders.length} / {orders.length}
               </span>
-              <select
-                value={sort}
-                onChange={(event) => setSort(event.target.value as SortKey)}
-                className="h-9 rounded-full border border-slate-800 bg-slate-900 px-3 text-xs font-medium text-slate-300 outline-none focus:border-cyan-300/40"
-                aria-label="Sort orders"
-              >
-                <option value="newest">Newest first</option>
-                <option value="deadline">Deadline first</option>
-                <option value="priority">Priority first</option>
-                <option value="amount">Highest amount</option>
-              </select>
+              <div className="relative">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  className="h-9 rounded-full border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                >
+                  Weitere Filter{moreFilterCount ? ` (${moreFilterCount})` : ""}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+                {filtersOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl shadow-black/40">
+                    <div className="space-y-4">
+                      <SelectField label="Status">
+                        <select value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)} className={selectClass}>
+                          <option value="all">Alle Status</option>
+                          {statuses.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      </SelectField>
+                      <SelectField label="Quelle">
+                        <select value={source} onChange={(event) => setSource(event.target.value as SourceFilter)} className={selectClass}>
+                          <option value="all">Alle Quellen</option>
+                          {sourceOptions.map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </SelectField>
+                      <SelectField label="Prioritaet">
+                        <select value={priority} onChange={(event) => setPriority(event.target.value as PriorityFilter)} className={selectClass}>
+                          <option value="all">Alle Prioritaeten</option>
+                          {priorityOptions.map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </SelectField>
+                      <SelectField label="Zahlung">
+                        <select value={payment} onChange={(event) => setPayment(event.target.value as PaymentFilter)} className={selectClass}>
+                          <option value="all">Alle Zahlungen</option>
+                          <option value="Paid">Bezahlt</option>
+                          <option value="Open">Offen</option>
+                        </select>
+                      </SelectField>
+                      <SelectField label="Sortierung">
+                        <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className={selectClass}>
+                          <option value="newest">Neueste zuerst</option>
+                          <option value="priority">Prioritaet zuerst</option>
+                          <option value="amount">Hoechster Betrag</option>
+                        </select>
+                      </SelectField>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <Button
                 type="button"
                 variant="outline"
                 onClick={resetFilters}
                 disabled={!hasActiveFilters}
-                className="rounded-full border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                className="h-9 rounded-full border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reset
@@ -213,71 +291,23 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <FilterButton active={scope === "active"} onClick={() => setScope("active")}>
-                Active
+          <div className="flex flex-wrap gap-2">
+            {quickViews.map((view) => (
+              <FilterButton key={view.id} active={quickView === view.id} count={quickCounts[view.id]} onClick={() => setQuickView(view.id)}>
+                {view.label}
               </FilterButton>
-              <FilterButton active={scope === "shipped"} onClick={() => setScope("shipped")}>
-                Shipped
-              </FilterButton>
-              <FilterButton active={scope === "closed"} onClick={() => setScope("closed")}>
-                Closed
-              </FilterButton>
-              <FilterButton active={scope === "all"} onClick={() => setScope("all")}>
-                All
-              </FilterButton>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <FilterButton active={status === "all"} onClick={() => setStatus("all")}>
-                All statuses
-              </FilterButton>
-              {statuses.map((item) => (
-                <FilterButton key={item} active={status === item} onClick={() => setStatus(item)}>
-                  {item}
-                </FilterButton>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
-              <FilterButton active={source === "all"} onClick={() => setSource("all")}>
-                All sources
-              </FilterButton>
-              {sourceOptions.map(([value, label]) => (
-                <FilterButton key={value} active={source === value} onClick={() => setSource(value)}>
-                  {label}
-                </FilterButton>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
-              <FilterButton active={priority === "all"} onClick={() => setPriority("all")}>
-                All priorities
-              </FilterButton>
-              {priorityOptions.map(([value, label]) => (
-                <FilterButton key={value} active={priority === value} onClick={() => setPriority(value)}>
-                  {label}
-                </FilterButton>
-              ))}
-              <FilterButton active={payment === "Open"} onClick={() => setPayment(payment === "Open" ? "all" : "Open")}>
-                Payment open
-              </FilterButton>
-              <FilterButton active={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)}>
-                Needs action
-              </FilterButton>
-            </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      <section className="space-y-3">
+      <section className="space-y-2">
         {filteredOrders.length > 0 ? (
           filteredOrders.map((order) => <OrderCard key={order.id} order={order} />)
         ) : (
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-8 text-center">
-            <p className="text-sm font-medium text-white">No orders match these filters.</p>
-            <p className="mt-2 text-sm text-slate-500">Adjust the filters or reset the view.</p>
+            <p className="text-sm font-medium text-white">Keine Auftraege gefunden.</p>
+            <p className="mt-2 text-sm text-slate-500">Filter anpassen oder Ansicht zuruecksetzen.</p>
           </div>
         )}
       </section>

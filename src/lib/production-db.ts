@@ -1,4 +1,4 @@
-import { manufacturers, productionRows } from "@/src/lib/mock-production";
+import { productionRows } from "@/src/lib/mock-production";
 import type { ManufacturerId, ProductionBatchStatus, ProductionRow } from "@/src/types/production";
 import type { OrderItemProductionStatus, PrintFileStatus } from "@/src/types/order";
 import { getPrisma, hasDatabaseUrl } from "./prisma";

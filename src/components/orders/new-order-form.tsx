@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
-import { useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { ArrowLeft, PackagePlus, PlusCircle, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -140,7 +140,8 @@ function Section({
 }
 
 export function NewOrderForm({ onCreateOrder }: { onCreateOrder: CreateOrderAction }) {
-  const defaultOrderNumber = useMemo(() => `WF-${Date.now().toString().slice(-5)}`, []);
+  const generatedOrderId = useId().replace(/\W/g, "").slice(-5).toUpperCase();
+  const defaultOrderNumber = `WF-${generatedOrderId}`;
   const [orderNumber, setOrderNumber] = useState(defaultOrderNumber);
   const [source, setSource] = useState<OrderSource>("email");
   const [externalId, setExternalId] = useState("");

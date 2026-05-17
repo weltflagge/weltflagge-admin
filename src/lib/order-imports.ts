@@ -1,4 +1,4 @@
-import { getCatalogEntry, getCatalogMaterial, printModeLabels, productCatalog, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
+import { getCatalogEntry, getCatalogMaterial, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import type { OrderSource, PrintFileStatus } from "@/src/types/order";
 import type { ManufacturerId } from "@/src/types/production";
 

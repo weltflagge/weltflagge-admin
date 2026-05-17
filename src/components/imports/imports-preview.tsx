@@ -43,8 +43,8 @@ export function ImportsPreview() {
         <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
           <CardContent className="flex items-center justify-between p-5">
             <div>
-              <p className="text-sm text-slate-500">Mock orders</p>
-              <p className="mt-2 text-3xl font-semibold text-white">{normalizedMockImports.length}</p>
+              <p className="text-sm text-slate-500">Mock items</p>
+              <p className="mt-2 text-3xl font-semibold text-white">{totalItems}</p>
             </div>
             <PackageSearch className="h-6 w-6 text-cyan-200" />
           </CardContent>

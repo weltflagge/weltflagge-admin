@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { AlertTriangle, CalendarClock, Euro, Inbox, PackageCheck, TrendingUp, Trophy } from "lucide-react";
+import { AlertTriangle, CalendarClock, Euro, Inbox, TrendingUp, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MetricCard } from "@/src/components/dashboard/metric-card";

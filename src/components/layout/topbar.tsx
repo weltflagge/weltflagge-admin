@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Bell, CircleHelp, Code2, Loader2, Menu, Moon, Search, X } from "lucide-react";
+import { Bell, CircleHelp, Code2, Loader2, LogOut, Menu, Moon, Search, X } from "lucide-react";
 
 type SearchResult = {
   id: string;
@@ -24,8 +24,6 @@ export function Topbar() {
     const trimmedQuery = query.trim();
 
     if (trimmedQuery.length < 2) {
-      setResults([]);
-      setLoading(false);
       return;
     }
 
@@ -39,7 +37,7 @@ export function Topbar() {
         });
         const data = (await response.json()) as { results?: SearchResult[] };
         setResults(data.results ?? []);
-      } catch (error) {
+      } catch {
         if (!controller.signal.aborted) {
           setResults([]);
         }
@@ -159,6 +157,11 @@ export function Topbar() {
           <button type="button" aria-label="GitHub" className="grid h-10 w-10 place-items-center rounded-full border border-[#27364f] bg-[#172033] transition hover:border-[#465fff]/40 hover:text-white">
             <Code2 className="h-4 w-4" />
           </button>
+          <form action="/logout" method="post">
+            <button type="submit" aria-label="Log out" className="grid h-10 w-10 place-items-center rounded-full border border-[#27364f] bg-[#172033] transition hover:border-[#465fff]/40 hover:text-white">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </form>
           <div className="ml-1 flex items-center gap-3">
             <div className="h-10 w-10 rounded-full border border-[#27364f] bg-[linear-gradient(135deg,#2d3a55,#6678ff)]" />
             <div className="hidden xl:block">

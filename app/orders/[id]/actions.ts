@@ -51,6 +51,10 @@ type OrderArchiveInput = {
   action: "ship" | "complete" | "reopen";
 };
 
+type ProductionResetInput = {
+  orderNumber: string;
+};
+
 type OrderActionResult = {
   ok: boolean;
   error?: string;
@@ -144,8 +148,8 @@ export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Pro
   }
 
   const message = fileName
-    ? `Druckdaten ${side.toLowerCase()} updated for ${orderItem.productName}: ${fileName} (${input.status}).`
-    : `Druckdaten ${side.toLowerCase()} file name cleared for ${orderItem.productName}.`;
+    ? `Druckdaten ${side.toLowerCase()} fuer ${orderItem.productName} aktualisiert: ${fileName} (${input.status}).`
+    : `Druckdaten ${side.toLowerCase()} fuer ${orderItem.productName} entfernt.`;
 
   const now = new Date();
 
@@ -223,8 +227,8 @@ export async function updateOrderWorkflowStatus(input: OrderStatusUpdateInput): 
   const dbOrderStatus = dbOrderStatusByUiStatus[input.status];
   const message =
     input.status === "In production"
-      ? "Order marked as in production."
-      : "Order marked as ready for shipping.";
+      ? "Auftrag wurde in Produktion gesetzt."
+      : "Auftrag wurde versandbereit gesetzt.";
   const now = new Date();
 
   const order = await prisma.order.findUnique({
@@ -279,7 +283,7 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
   const trackingNumber = input.trackingNumber.trim();
 
   if (!carrier && !trackingNumber) {
-    return { ok: false, error: "Carrier or tracking number is required." };
+    return { ok: false, error: "Versanddienst oder Sendungsnummer ist erforderlich." };
   }
 
   const prisma = getPrisma();
@@ -295,8 +299,8 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
   }
 
   const message = carrier
-    ? `Tracking number saved: ${carrier} ${trackingNumber}.`
-    : `Tracking number saved: ${trackingNumber}.`;
+    ? `Versanddaten gespeichert: ${carrier} ${trackingNumber}.`
+    : `Versanddaten gespeichert: ${trackingNumber}.`;
 
   const activity = await prisma.$transaction(async (tx) => {
     await tx.order.update({
@@ -344,7 +348,7 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
   const customerEmail = input.customerEmail.trim();
 
   if (!customerName || !customerEmail) {
-    return { ok: false, error: "Customer name and email are required." };
+    return { ok: false, error: "Kundenname und E-Mail sind erforderlich." };
   }
 
   const prisma = getPrisma();
@@ -360,7 +364,7 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
   }
 
   if ((input.status === "Shipped" || input.status === "Completed") && (!order.carrier || !order.trackingNumber)) {
-    return { ok: false, error: "Carrier and tracking number are required before shipping or closing an order." };
+    return { ok: false, error: "Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich." };
   }
 
   const activity = await prisma.$transaction(async (tx) => {
@@ -411,7 +415,7 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
       data: {
         entityType: "ORDER",
         actor: "Operator",
-        message: "Order customer, shipping or workflow fields updated.",
+        message: "Auftragsdaten wurden aktualisiert.",
         orderId: order.id,
         createdAt: now,
       },
@@ -456,17 +460,17 @@ export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promis
   }
 
   if ((input.action === "ship" || input.action === "complete") && (!order.carrier || !order.trackingNumber)) {
-    return { ok: false, error: "Carrier and tracking number are required before shipping or closing an order." };
+    return { ok: false, error: "Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich." };
   }
 
   const nextStatus =
     input.action === "reopen" ? "IN_PRODUCTION" : input.action === "complete" ? "COMPLETED" : "SHIPPED";
   const message =
     input.action === "reopen"
-      ? "Order reopened and moved back to in production."
+      ? "Auftrag wurde wieder geoeffnet und in Produktion gesetzt."
       : input.action === "complete"
-        ? "Order completed and moved to closed archive."
-        : "Order marked as shipped.";
+        ? "Auftrag wurde abgeschlossen."
+        : "Auftrag wurde als versendet markiert.";
 
   const activity = await prisma.$transaction(async (tx) => {
     await tx.order.update({
@@ -487,6 +491,66 @@ export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promis
 
   revalidatePath(`/orders/${input.orderNumber}`);
   revalidatePath("/orders");
+
+  return {
+    ok: true,
+    timelineEntry: {
+      id: activity.id,
+      timestamp: formatTimestamp(activity.createdAt),
+      actor: activity.actor,
+      message: activity.message,
+    },
+  };
+}
+
+export async function resetOrderProduction(input: ProductionResetInput): Promise<OrderActionResult> {
+  if (!hasDatabaseUrl()) {
+    return {
+      ok: false,
+      error: "DATABASE_URL is not configured yet, so this production reset is only kept in local mock state.",
+    };
+  }
+
+  const prisma = getPrisma();
+  const now = new Date();
+  const order = await prisma.order.findUnique({
+    where: { orderNumber: input.orderNumber },
+    select: { id: true },
+  });
+
+  if (!order) {
+    return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  const activity = await prisma.$transaction(async (tx) => {
+    await tx.orderItemProductionState.updateMany({
+      where: { orderItem: { orderId: order.id } },
+      data: {
+        status: "DRAFT",
+        sentAt: null,
+        currentBatchId: null,
+      },
+    });
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { status: "PRINT_FILES_REVIEW" },
+    });
+
+    return tx.activityLog.create({
+      data: {
+        entityType: "ORDER",
+        actor: "Operator",
+        message: "Produktion wurde zurueckgesetzt und der Auftrag ist wieder in Druckdatenpruefung.",
+        orderId: order.id,
+        createdAt: now,
+      },
+    });
+  });
+
+  revalidatePath(`/orders/${input.orderNumber}`);
+  revalidatePath("/orders");
+  revalidatePath("/production");
 
   return {
     ok: true,

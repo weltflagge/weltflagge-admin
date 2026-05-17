@@ -9,9 +9,7 @@ import {
   Factory,
   FileCheck2,
   GitBranch,
-  Mail,
   MapPin,
-  MessageSquarePlus,
   Package,
   PackageCheck,
   Send,
@@ -102,6 +100,14 @@ type OrderEditAction = (input: {
 type OrderArchiveAction = (input: {
   orderNumber: string;
   action: "ship" | "complete" | "reopen";
+}) => Promise<{
+  ok: boolean;
+  error?: string;
+  timelineEntry?: ActivityLogEntry;
+}>;
+
+type ProductionResetAction = (input: {
+  orderNumber: string;
 }) => Promise<{
   ok: boolean;
   error?: string;
@@ -238,6 +244,7 @@ export function OrderDetailWorkspace({
   onTrackingUpdate,
   onOrderEdit,
   onArchiveUpdate,
+  onProductionReset,
 }: {
   order: Order;
   onPrintFileUpdate?: PrintFileUpdateAction;
@@ -245,6 +252,7 @@ export function OrderDetailWorkspace({
   onTrackingUpdate?: TrackingUpdateAction;
   onOrderEdit?: OrderEditAction;
   onArchiveUpdate?: OrderArchiveAction;
+  onProductionReset?: ProductionResetAction;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<OrderItem[]>(order.items);
@@ -275,7 +283,7 @@ export function OrderDetailWorkspace({
   const [carrier, setCarrier] = useState(order.carrier === "-" ? "" : order.carrier);
   const [trackingNumber, setTrackingNumber] = useState(order.trackingNumber);
   const [savingPrintFileKey, setSavingPrintFileKey] = useState<string | null>(null);
-  const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | null>(null);
+  const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | "production-reset" | null>(null);
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
@@ -356,17 +364,17 @@ export function OrderDetailWorkspace({
   function addActionResultToTimeline(result: { ok: boolean; error?: string; timelineEntry?: ActivityLogEntry }, fallbackMessage: string) {
     if (result.ok && result.timelineEntry) {
       setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
-      setSaveMessage("Order saved to database.");
+      setSaveMessage("Aenderung gespeichert.");
       return;
     }
 
     addTimelineEntry(fallbackMessage);
-    setSaveMessage(result.error ?? "Order change could not be saved to the database.");
+    setSaveMessage(result.error ?? "Aenderung konnte nicht gespeichert werden.");
   }
 
   async function markWorkflowStatus(nextStatus: Extract<OrderStatus, "In production" | "Ready to ship">) {
     const fallbackMessage =
-      nextStatus === "In production" ? "Order marked as in production." : "Order marked as ready for shipping.";
+      nextStatus === "In production" ? "Auftrag wurde in Produktion gesetzt." : "Auftrag wurde versandbereit gesetzt.";
 
     setStatus(nextStatus);
 
@@ -383,7 +391,7 @@ export function OrderDetailWorkspace({
       addActionResultToTimeline(result, fallbackMessage);
     } catch {
       addTimelineEntry(fallbackMessage);
-      setSaveMessage("Order status could not be saved to the database.");
+      setSaveMessage("Auftragsstatus konnte nicht gespeichert werden.");
     } finally {
       setSavingOrderAction(null);
     }
@@ -394,17 +402,17 @@ export function OrderDetailWorkspace({
     const nextTrackingNumber = trackingNumber.trim();
 
     if (!nextCarrier && !nextTrackingNumber) {
-      setTrackingMessage("Carrier or tracking number is required before saving.");
+      setTrackingMessage("Versanddienst oder Sendungsnummer ist erforderlich.");
       return;
     }
 
     const fallbackMessage = nextCarrier
-      ? `Tracking number saved: ${nextCarrier} ${nextTrackingNumber}.`
-      : `Tracking number saved: ${nextTrackingNumber}.`;
+      ? `Versanddaten gespeichert: ${nextCarrier} ${nextTrackingNumber}.`
+      : `Versanddaten gespeichert: ${nextTrackingNumber}.`;
 
     if (!onTrackingUpdate) {
       addTimelineEntry(fallbackMessage);
-      setTrackingMessage("Shipping details updated locally.");
+      setTrackingMessage("Versanddaten lokal aktualisiert.");
       return;
     }
 
@@ -422,16 +430,16 @@ export function OrderDetailWorkspace({
         setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
         setCarrier(nextCarrier);
         setTrackingNumber(nextTrackingNumber);
-        setTrackingMessage("Shipping details saved to database.");
+        setTrackingMessage("Versanddaten gespeichert.");
         router.refresh();
         return;
       }
 
       addTimelineEntry(fallbackMessage);
-      setTrackingMessage(result.error ?? "Shipping details could not be saved to the database.");
+      setTrackingMessage(result.error ?? "Versanddaten konnten nicht gespeichert werden.");
     } catch {
       addTimelineEntry(fallbackMessage);
-      setTrackingMessage("Shipping details could not be saved to the database.");
+      setTrackingMessage("Versanddaten konnten nicht gespeichert werden.");
     } finally {
       setSavingOrderAction(null);
     }
@@ -439,18 +447,18 @@ export function OrderDetailWorkspace({
 
   async function saveOrderEdits() {
     if (!customerDraft.name.trim() || !customerDraft.email.trim()) {
-      setEditMessage("Customer name and email are required.");
+      setEditMessage("Kundenname und E-Mail sind erforderlich.");
       return;
     }
 
     if ((status === "Shipped" || status === "Completed") && (!carrier.trim() || !trackingNumber.trim())) {
-      setEditMessage("Carrier and tracking number are required before shipping or closing an order.");
+      setEditMessage("Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich.");
       return;
     }
 
     if (!onOrderEdit) {
-      addTimelineEntry("Order customer, shipping, payment or workflow fields updated.");
-      setEditMessage("Order fields updated locally.");
+      addTimelineEntry("Auftragsdaten wurden aktualisiert.");
+      setEditMessage("Auftragsdaten lokal aktualisiert.");
       return;
     }
 
@@ -476,14 +484,14 @@ export function OrderDetailWorkspace({
 
       if (result.ok && result.timelineEntry) {
         setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
-        setEditMessage("Order fields saved to database.");
+        setEditMessage("Auftragsdaten gespeichert.");
         router.refresh();
         return;
       }
 
-      setEditMessage(result.error ?? "Order fields could not be saved to the database.");
+      setEditMessage(result.error ?? "Auftragsdaten konnten nicht gespeichert werden.");
     } catch {
-      setEditMessage("Order fields could not be saved to the database.");
+      setEditMessage("Auftragsdaten konnten nicht gespeichert werden.");
     } finally {
       setSavingOrderEdit(false);
     }
@@ -491,17 +499,17 @@ export function OrderDetailWorkspace({
 
   async function updateArchiveStatus(action: "ship" | "complete" | "reopen") {
     if ((action === "ship" || action === "complete") && (!carrier.trim() || !trackingNumber.trim())) {
-      setTrackingMessage("Carrier and tracking number are required before shipping or closing an order.");
+      setTrackingMessage("Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich.");
       return;
     }
 
     const nextStatus: OrderStatus = action === "reopen" ? "In production" : action === "complete" ? "Completed" : "Shipped";
     const fallbackMessage =
       action === "reopen"
-        ? "Order reopened and moved back to in production."
+        ? "Auftrag wurde wieder geoeffnet und in Produktion gesetzt."
         : action === "complete"
-          ? "Order completed and moved to closed archive."
-          : "Order marked as shipped.";
+          ? "Auftrag wurde abgeschlossen."
+          : "Auftrag wurde als versendet markiert.";
 
     setStatus(nextStatus);
 
@@ -520,7 +528,43 @@ export function OrderDetailWorkspace({
       router.refresh();
     } catch {
       addTimelineEntry(fallbackMessage);
-      setSaveMessage("Order archive status could not be saved to the database.");
+      setSaveMessage("Auftragsstatus konnte nicht gespeichert werden.");
+    } finally {
+      setSavingOrderAction(null);
+    }
+  }
+
+  async function resetProductionWorkflow() {
+    const fallbackMessage = "Produktion wurde zurueckgesetzt und der Auftrag ist wieder in Druckdatenpruefung.";
+
+    setStatus("Print files review");
+    setItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        production: {
+          ...item.production,
+          status: "draft",
+          batchId: undefined,
+        },
+      }))
+    );
+
+    if (!onProductionReset) {
+      addTimelineEntry(fallbackMessage);
+      setSaveMessage("Produktion lokal zurueckgesetzt.");
+      return;
+    }
+
+    setSavingOrderAction("production-reset");
+    setSaveMessage(null);
+
+    try {
+      const result = await onProductionReset({ orderNumber: order.id });
+      addActionResultToTimeline(result, fallbackMessage);
+      router.refresh();
+    } catch {
+      addTimelineEntry(fallbackMessage);
+      setSaveMessage("Produktion konnte nicht zurueckgesetzt werden.");
     } finally {
       setSavingOrderAction(null);
     }
@@ -568,8 +612,8 @@ export function OrderDetailWorkspace({
     if (!onPrintFileUpdate) {
       addTimelineEntry(
         nextFileName
-          ? `Druckdaten ${side ?? "front"} file name updated for ${item.name}: ${nextFileName}.`
-          : `Druckdaten ${side ?? "front"} file name cleared for ${item.name}.`
+          ? `Druckdaten ${side ?? "front"} fuer ${item.name} aktualisiert: ${nextFileName}.`
+          : `Druckdaten ${side ?? "front"} fuer ${item.name} entfernt.`
       );
     }
 
@@ -608,7 +652,7 @@ export function OrderDetailWorkspace({
     );
 
     if (!onPrintFileUpdate) {
-      addTimelineEntry(`Druckdaten ${side ?? "front"} status for ${item.name} changed to ${status}.`);
+      addTimelineEntry(`Druckdaten ${side ?? "front"} fuer ${item.name} auf ${status} gesetzt.`);
     }
 
     void persistPrintFileUpdate(item, side, currentPrintFile.fileName, status);
@@ -620,7 +664,7 @@ export function OrderDetailWorkspace({
         <Button asChild variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
           <Link href="/orders">
             <ArrowLeft className="h-4 w-4" />
-            Back to orders
+            Zurueck zu Auftraegen
           </Link>
         </Button>
       </div>
@@ -633,7 +677,7 @@ export function OrderDetailWorkspace({
               {sourceLabels[order.source]}
             </span>
             <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-              {priorityLabels[priority]} priority
+              {priorityLabels[priority]} Prioritaet
             </span>
             <span
               className={`rounded-full border px-3 py-1 text-xs font-medium ${
@@ -642,22 +686,22 @@ export function OrderDetailWorkspace({
                   : "border-amber-500/25 bg-amber-500/10 text-amber-200"
               }`}
             >
-              {allPrintFilesApproved ? "Druckdaten ready" : "Druckdaten open"}
+              {allPrintFilesApproved ? "Druckdaten bereit" : "Druckdaten offen"}
             </span>
             {splitAcrossManufacturers ? (
               <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-3 py-1 text-xs font-medium text-violet-100">
-                Split production
+                Geteilte Produktion
               </span>
             ) : null}
             {archived ? (
               <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-300">
-                Archived
+                Archiviert
               </span>
             ) : null}
           </div>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-5xl">{order.id}</h1>
           <p className="mt-3 text-sm text-slate-400">
-            External ID {order.externalId} - received {order.date} - deadline {order.deadline}
+            Externe ID {order.externalId} - Eingang {order.date} - Termin {order.deadline}
           </p>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-4 text-right">
@@ -671,7 +715,7 @@ export function OrderDetailWorkspace({
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_22rem]">
         <div className="space-y-5">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-            <DetailCard title="Customer" icon={UserRound}>
+            <DetailCard title="Kunde" icon={UserRound}>
               <div className="space-y-3">
                 <InfoRow label="Name" value={customerDraft.name} />
                 <InfoRow
@@ -682,15 +726,15 @@ export function OrderDetailWorkspace({
                     </a>
                   }
                 />
-                <InfoRow label="Phone" value={customerDraft.phone || "-"} />
+                <InfoRow label="Telefon" value={customerDraft.phone || "-"} />
               </div>
             </DetailCard>
 
-            <DetailCard title="Billing address" icon={MapPin}>
+            <DetailCard title="Rechnungsadresse" icon={MapPin}>
               <AddressBlock address={order.billingAddress} />
             </DetailCard>
 
-            <DetailCard title="Shipping address" icon={Truck}>
+            <DetailCard title="Lieferadresse" icon={Truck}>
               <AddressBlock
                 address={{
                   company: shippingDraft.company || "-",
@@ -704,15 +748,15 @@ export function OrderDetailWorkspace({
             </DetailCard>
           </div>
 
-          <DetailCard title="Production overview" icon={Factory}>
+          <DetailCard title="Produktion" icon={Factory}>
             <div className="space-y-4">
               {splitAcrossManufacturers ? (
                 <div className="flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-400/10 p-4">
                   <GitBranch className="mt-0.5 h-5 w-5 text-violet-100" />
                   <div>
-                    <p className="text-sm font-medium text-violet-100">This order is split across multiple manufacturers.</p>
+                    <p className="text-sm font-medium text-violet-100">Dieser Auftrag ist auf mehrere Hersteller verteilt.</p>
                     <p className="mt-1 text-xs leading-5 text-slate-400">
-                      The main order status remains separate from item production. Shipping can be handled after all item-level work is ready.
+                      Die Produktion laeuft pro Artikel. Versand bleibt ein separater Schritt.
                     </p>
                   </div>
                 </div>
@@ -725,11 +769,11 @@ export function OrderDetailWorkspace({
                       <div>
                         <p className="text-lg font-semibold text-white">{manufacturerLabels[group.manufacturer]}</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {group.items.length} item{group.items.length === 1 ? "" : "s"} - {group.completeItems}/{group.items.length} Druckdaten complete
+                          {group.items.length} Artikel - {group.completeItems}/{group.items.length} Druckdaten bereit
                         </p>
                       </div>
                       <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
-                        {group.batchIds.length ? `${group.batchIds.length} batch${group.batchIds.length === 1 ? "" : "es"}` : "No batch"}
+                        {group.batchIds.length ? "Gesendet" : "Noch nicht gesendet"}
                       </span>
                     </div>
 
@@ -743,7 +787,7 @@ export function OrderDetailWorkspace({
                               <div>
                                 <p className="text-sm font-medium text-white">{item.name}</p>
                                 <p className="mt-1 text-xs text-slate-500">
-                                  {item.sku} - {item.size} - Qty {item.quantity}
+                                  {item.sku} - {item.size} - Stueck {item.quantity}
                                 </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
@@ -758,17 +802,17 @@ export function OrderDetailWorkspace({
 
                             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                               <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
-                                <p className="text-xs uppercase tracking-wide text-slate-500">Batch</p>
-                                <p className="mt-1 text-sm text-slate-200">{item.production.batchId ?? "Not batched yet"}</p>
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Hersteller</p>
+                                <p className="mt-1 text-sm text-slate-200">{manufacturerLabels[group.manufacturer]}</p>
                               </div>
                               <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
-                                <p className="text-xs uppercase tracking-wide text-slate-500">Print files</p>
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Druckdaten</p>
                                 <div className="mt-1 space-y-1">
                                   {getItemPrintFiles(item).map((printFile) => (
                                     <p key={getPrintFileKey(item, printFile)} className="flex justify-between gap-3 text-xs">
                                       <span className="text-slate-500">{printFile.side ?? "front"}</span>
                                       <span className={printFile.fileName && printFile.status !== "missing" ? "text-slate-200" : "text-amber-200"}>
-                                        {printFile.fileName || "missing"}
+                                        {printFile.fileName || "fehlt"}
                                       </span>
                                     </p>
                                   ))}
@@ -782,10 +826,30 @@ export function OrderDetailWorkspace({
                   </div>
                 ))}
               </div>
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-amber-100">Produktion neu pruefen</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      Setzt die Produktion fuer diesen Auftrag zurueck und verschiebt ihn in die Druckdatenpruefung.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetProductionWorkflow}
+                    disabled={savingOrderAction === "production-reset"}
+                    className="rounded-xl border-amber-500/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                    {savingOrderAction === "production-reset" ? "Speichern..." : "Produktion zuruecksetzen"}
+                  </Button>
+                </div>
+              </div>
             </div>
           </DetailCard>
 
-          <DetailCard title="Ordered products" icon={Package}>
+          <DetailCard title="Druckdaten & Produkte" icon={Package}>
             <div className="space-y-3">
               {items.map((item) => {
                 const itemKey = getItemKey(item);
@@ -797,12 +861,12 @@ export function OrderDetailWorkspace({
                       <div>
                         <p className="font-medium text-white">{item.name}</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {item.sku} - {item.size} - Qty {item.quantity}
+                          {item.sku} - {item.size} - Stueck {item.quantity}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-500">Production</p>
-                        <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Not assigned"}</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Produktion</p>
+                        <p className="mt-1 text-sm text-slate-300">{item.production.manufacturer ?? "Nicht zugeordnet"}</p>
                         <p className="mt-1 text-xs text-slate-500">{item.production.status}</p>
                       </div>
                       <div>
@@ -825,7 +889,7 @@ export function OrderDetailWorkspace({
                         return (
                           <div key={printFileKey} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3 lg:grid-cols-[7rem_1fr_11rem_auto]">
                             <div>
-                              <p className="text-xs uppercase tracking-wide text-slate-500">Side</p>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Seite</p>
                               <p className="mt-1 text-sm font-medium text-slate-200">{side}</p>
                             </div>
                             <input
@@ -836,14 +900,14 @@ export function OrderDetailWorkspace({
                                   [printFileKey]: event.target.value,
                                 }))
                               }
-                              placeholder={`Add or update ${side} print file name...`}
+                              placeholder={`${side} Druckdatei eintragen...`}
                               className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
                             />
                             <select
                               value={printFile.status}
                               onChange={(event) => updatePrintFileStatus(itemKey, side, event.target.value as PrintFileStatus)}
                               className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
-                              aria-label={`Druckdaten status for ${item.sku} ${side}`}
+                              aria-label={`Druckdatenstatus fuer ${item.sku} ${side}`}
                             >
                               {printFileStatuses.map((status) => (
                                 <option key={status} value={status}>
@@ -858,7 +922,7 @@ export function OrderDetailWorkspace({
                               disabled={savingPrintFileKey === printFileKey}
                               className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
                             >
-                              {savingPrintFileKey === printFileKey ? "Saving..." : "Attach file name"}
+                              {savingPrintFileKey === printFileKey ? "Speichern..." : "Druckdatei speichern"}
                             </Button>
                           </div>
                         );
@@ -869,16 +933,16 @@ export function OrderDetailWorkspace({
               })}
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              {saveMessage ?? "Druckdaten changes are saved when a database connection is configured."}
+              {saveMessage ?? "Druckdaten-Aenderungen werden direkt gespeichert."}
             </p>
           </DetailCard>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <DetailCard title="Internal notes" icon={ClipboardList}>
+            <DetailCard title="Interne Notizen" icon={ClipboardList}>
               <p className="rounded-lg bg-slate-900/70 p-4 text-sm leading-6 text-slate-300">{order.notes}</p>
             </DetailCard>
 
-            <DetailCard title="Timeline" icon={CalendarClock}>
+            <DetailCard title="Verlauf" icon={CalendarClock}>
               <div className="space-y-4">
                 {timeline.map((entry) => (
                   <div key={entry.id} className="relative pl-6">
@@ -898,10 +962,10 @@ export function OrderDetailWorkspace({
         </div>
 
         <aside className="space-y-5">
-          <DetailCard title="Edit order" icon={ClipboardList}>
+          <DetailCard title="Auftrag bearbeiten" icon={ClipboardList}>
             <div className="space-y-3">
               <label className="block space-y-2 text-sm text-slate-400">
-                <span>Status</span>
+                <span>Auftragsstatus</span>
                 <select value={status} onChange={(event) => setStatus(event.target.value as OrderStatus)} className={editInputClass}>
                   {editableOrderStatuses.map((editableStatus) => (
                     <option key={editableStatus} value={editableStatus}>
@@ -911,14 +975,14 @@ export function OrderDetailWorkspace({
                 </select>
               </label>
               <label className="block space-y-2 text-sm text-slate-400">
-                <span>Payment status</span>
+                <span>Zahlung</span>
                 <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as Order["paymentStatus"])} className={editInputClass}>
                   <option value="Open">Open</option>
                   <option value="Paid">Paid</option>
                 </select>
               </label>
               <label className="block space-y-2 text-sm text-slate-400">
-                <span>Priority</span>
+                <span>Prioritaet</span>
                 <select value={priority} onChange={(event) => setPriority(event.target.value as OrderPriority)} className={editInputClass}>
                   {editablePriorities.map((editablePriority) => (
                     <option key={editablePriority} value={editablePriority}>
@@ -932,20 +996,20 @@ export function OrderDetailWorkspace({
                 <input
                   value={customerDraft.name}
                   onChange={(event) => setCustomerDraft((draft) => ({ ...draft, name: event.target.value }))}
-                  placeholder="Customer name"
+                  placeholder="Kundenname"
                   className={editInputClass}
                 />
                 <input
                   type="email"
                   value={customerDraft.email}
                   onChange={(event) => setCustomerDraft((draft) => ({ ...draft, email: event.target.value }))}
-                  placeholder="Customer email"
+                  placeholder="E-Mail"
                   className={editInputClass}
                 />
                 <input
                   value={customerDraft.phone}
                   onChange={(event) => setCustomerDraft((draft) => ({ ...draft, phone: event.target.value }))}
-                  placeholder="Customer phone"
+                  placeholder="Telefon"
                   className={editInputClass}
                 />
               </div>
@@ -954,39 +1018,39 @@ export function OrderDetailWorkspace({
                 <input
                   value={shippingDraft.company}
                   onChange={(event) => setShippingDraft((draft) => ({ ...draft, company: event.target.value }))}
-                  placeholder="Shipping company"
+                  placeholder="Firma Versand"
                   className={editInputClass}
                 />
                 <input
                   value={shippingDraft.name}
                   onChange={(event) => setShippingDraft((draft) => ({ ...draft, name: event.target.value }))}
-                  placeholder="Shipping name"
+                  placeholder="Name Versand"
                   className={editInputClass}
                 />
                 <input
                   value={shippingDraft.street}
                   onChange={(event) => setShippingDraft((draft) => ({ ...draft, street: event.target.value }))}
-                  placeholder="Shipping street"
+                  placeholder="Strasse"
                   className={editInputClass}
                 />
                 <div className="grid grid-cols-[0.8fr_1fr] gap-3">
                   <input
                     value={shippingDraft.postalCode}
                     onChange={(event) => setShippingDraft((draft) => ({ ...draft, postalCode: event.target.value }))}
-                    placeholder="ZIP"
+                    placeholder="PLZ"
                     className={editInputClass}
                   />
                   <input
                     value={shippingDraft.city}
                     onChange={(event) => setShippingDraft((draft) => ({ ...draft, city: event.target.value }))}
-                    placeholder="City"
+                    placeholder="Stadt"
                     className={editInputClass}
                   />
                 </div>
                 <input
                   value={shippingDraft.country}
                   onChange={(event) => setShippingDraft((draft) => ({ ...draft, country: event.target.value }))}
-                  placeholder="Country"
+                  placeholder="Land"
                   className={editInputClass}
                 />
               </div>
@@ -999,25 +1063,25 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <FileCheck2 className="h-4 w-4" />
-                {savingOrderEdit ? "Saving..." : "Save order changes"}
+                {savingOrderEdit ? "Speichern..." : "Auftrag speichern"}
               </Button>
-              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Customer, shipping, payment, status and priority can be changed after order intake."}</p>
+              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Kunde, Versandadresse, Zahlung, Status und Prioritaet koennen hier angepasst werden."}</p>
             </div>
           </DetailCard>
 
-          <DetailCard title="Status" icon={FileCheck2}>
+          <DetailCard title="Uebersicht" icon={FileCheck2}>
             <div className="space-y-3">
-              <InfoRow label="Payment" value={paymentStatus} />
+              <InfoRow label="Zahlung" value={paymentStatus} />
               <InfoRow label="Druckdaten" value={allPrintFilesApproved ? "Ready" : "Open"} />
-              <InfoRow label="Production" value={<StatusChip status={status} />} />
-              <InfoRow label="Carrier" value={carrier || "-"} />
+              <InfoRow label="Auftrag" value={<StatusChip status={status} />} />
+              <InfoRow label="Versanddienst" value={carrier || "-"} />
             </div>
           </DetailCard>
 
-          <DetailCard title="Shipping" icon={Truck}>
+          <DetailCard title="Versand" icon={Truck}>
             <div className="space-y-3">
               <label className="block text-sm text-slate-400" htmlFor="shipping-carrier">
-                Carrier
+                Versanddienst
               </label>
               <input
                 id="shipping-carrier"
@@ -1027,13 +1091,13 @@ export function OrderDetailWorkspace({
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
               <label className="block text-sm text-slate-400" htmlFor="tracking-number">
-                Tracking number
+                Sendungsnummer
               </label>
               <input
                 id="tracking-number"
                 value={trackingNumber}
                 onChange={(event) => setTrackingNumber(event.target.value)}
-                placeholder="Add tracking number..."
+                placeholder="Sendungsnummer eintragen..."
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
               <Button
@@ -1044,24 +1108,16 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Send className="h-4 w-4" />
-                {savingOrderAction === "tracking" ? "Saving..." : "Save shipping details"}
+                {savingOrderAction === "tracking" ? "Speichern..." : "Versand speichern"}
               </Button>
               <p className="text-xs leading-5 text-slate-500">
-                {trackingMessage ?? "Tracking is saved independently from the main order closure."}
+                {trackingMessage ?? "Versanddaten sind ein separater Schritt nach der Produktion."}
               </p>
             </div>
           </DetailCard>
 
-          <DetailCard title="Quick actions" icon={MessageSquarePlus}>
+          <DetailCard title="Workflow" icon={PackageCheck}>
             <div className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
-              >
-                <Mail className="h-4 w-4" />
-                Send Druckfreigabe reminder
-              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -1070,7 +1126,7 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Package className="h-4 w-4" />
-                {savingOrderAction === "status" ? "Saving..." : "Mark as in production"}
+                {savingOrderAction === "status" ? "Speichern..." : "In Produktion setzen"}
               </Button>
               <Button
                 type="button"
@@ -1080,7 +1136,7 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <PackageCheck className="h-4 w-4" />
-                {savingOrderAction === "status" ? "Saving..." : "Mark as ready for shipping"}
+                {savingOrderAction === "status" ? "Speichern..." : "Versandbereit setzen"}
               </Button>
               <Button
                 type="button"
@@ -1090,7 +1146,7 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Truck className="h-4 w-4" />
-                {savingOrderAction === "status" ? "Saving..." : "Mark as shipped"}
+                {savingOrderAction === "status" ? "Speichern..." : "Als versendet markieren"}
               </Button>
               <Button
                 type="button"
@@ -1100,7 +1156,7 @@ export function OrderDetailWorkspace({
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <PackageCheck className="h-4 w-4" />
-                {savingOrderAction === "status" ? "Saving..." : "Close order"}
+                {savingOrderAction === "status" ? "Speichern..." : "Auftrag abschliessen"}
               </Button>
               {archived ? (
                 <Button
@@ -1111,37 +1167,11 @@ export function OrderDetailWorkspace({
                   className="w-full justify-start rounded-xl border-amber-500/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15"
                 >
                   <Undo2 className="h-4 w-4" />
-                  {savingOrderAction === "status" ? "Saving..." : "Reopen order"}
+                  {savingOrderAction === "status" ? "Speichern..." : "Auftrag wieder oeffnen"}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={saveTrackingNumber}
-                disabled={savingOrderAction === "tracking"}
-                className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
-              >
-                <Send className="h-4 w-4" />
-                {savingOrderAction === "tracking" ? "Saving..." : "Add tracking number"}
-              </Button>
             </div>
           </DetailCard>
-
-          <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none backdrop-blur-xl">
-            <CardContent className="p-5">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-cyan-200">
-                  <FileCheck2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Operator view</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
-                    Druckdaten changes are stored independently. Main order closure remains a separate shipping workflow.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </aside>
       </section>
     </div>

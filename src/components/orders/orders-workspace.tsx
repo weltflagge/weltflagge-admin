@@ -32,6 +32,10 @@ function parseAmount(amount: string) {
   return Number(amount.replace(" EUR", "").replace(".", "").replace(",", "."));
 }
 
+function getOrderSortDate(order: Order) {
+  return order.createdAt ?? order.date;
+}
+
 function includesSearch(order: Order, search: string) {
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -140,7 +144,7 @@ export function OrdersWorkspace({ orders }: { orders: Order[] }) {
         return parseAmount(b.amount) - parseAmount(a.amount);
       }
 
-      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
+      return getOrderSortDate(b).localeCompare(getOrderSortDate(a)) || b.id.localeCompare(a.id);
     });
   }, [needsActionOnly, orders, payment, priority, scope, search, sort, source, status]);
 

@@ -69,6 +69,7 @@ export type Order = {
   source: OrderSource;
   externalId: string;
   date: string;
+  createdAt?: string;
   customer: string;
   email: string;
   phone: string;

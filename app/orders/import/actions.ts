@@ -122,6 +122,16 @@ export async function createOrderFromAngebot(input: AngebotDraft): Promise<Creat
     return { ok: false, error: "Die Stueckzahl muss mindestens 1 sein." };
   }
 
+  if (
+    items.some(
+      (item) =>
+        item.itemType === "production_item" &&
+        (!item.verifiedQuantity || !item.verifiedSize || !item.verifiedFinishing)
+    )
+  ) {
+    return { ok: false, error: "Bitte bei allen Produktionsartikeln Stueckzahl, Groesse und Konfektion bewusst pruefen und abhaken." };
+  }
+
   const prisma = getPrisma();
   const existingOrder = await prisma.order.findUnique({
     where: { orderNumber },

@@ -23,6 +23,29 @@ const itemTypeLabels: Record<OrderItemType, string> = {
   shipping_item: "Versand",
 };
 
+function parseGermanAmount(value: string) {
+  const amount = Number(value.replace(/\s/g, "").replace(".", "").replace(",", "."));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatGermanAmount(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function calculateTotalPrice(quantity: string, unitPrice: string) {
+  const parsedQuantity = Number(quantity.replace(",", "."));
+  const parsedUnitPrice = parseGermanAmount(unitPrice);
+
+  if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || parsedUnitPrice <= 0) {
+    return "";
+  }
+
+  return formatGermanAmount(parsedQuantity * parsedUnitPrice);
+}
+
 function fieldClass(isUncertain: boolean) {
   return `${inputClass} ${isUncertain ? uncertainClass : ""}`;
 }
@@ -75,6 +98,9 @@ function createEmptyItem(index: number): AngebotDraftItem {
     unitPrice: "",
     totalPrice: "",
     notes: "",
+    verifiedQuantity: false,
+    verifiedSize: false,
+    verifiedFinishing: false,
     uncertainFields: ["productName"],
   };
 }
@@ -136,7 +162,25 @@ export function AngebotImportWorkspace({
       currentDraft
         ? {
             ...currentDraft,
-            items: currentDraft.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
+            items: currentDraft.items.map((item) => {
+              if (item.id !== itemId) {
+                return item;
+              }
+
+              const nextItem = { ...item, ...patch };
+
+              if ((patch.quantity !== undefined || patch.unitPrice !== undefined) && patch.totalPrice === undefined) {
+                nextItem.totalPrice = calculateTotalPrice(nextItem.quantity, nextItem.unitPrice);
+              }
+
+              if (patch.itemType === "production_item" && item.itemType !== "production_item") {
+                nextItem.verifiedQuantity = false;
+                nextItem.verifiedSize = false;
+                nextItem.verifiedFinishing = false;
+              }
+
+              return nextItem;
+            }),
           }
         : currentDraft
     );
@@ -351,6 +395,46 @@ export function AngebotImportWorkspace({
                         <input value={item.notes} onChange={(event) => updateItem(item.id, { notes: event.target.value })} className={inputClass} />
                       </Field>
                     </div>
+                    {item.itemType === "production_item" ? (
+                      <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-800 pt-4 md:grid-cols-3">
+                        <label className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={item.verifiedQuantity}
+                            onChange={(event) => updateItem(item.id, { verifiedQuantity: event.target.checked })}
+                            className="mt-1 h-4 w-4 accent-cyan-200"
+                          />
+                          <span>
+                            <span className="block font-medium text-white">Stueckzahl geprueft</span>
+                            <span className="text-xs text-slate-500">Menge bewusst kontrolliert.</span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={item.verifiedSize}
+                            onChange={(event) => updateItem(item.id, { verifiedSize: event.target.checked })}
+                            className="mt-1 h-4 w-4 accent-cyan-200"
+                          />
+                          <span>
+                            <span className="block font-medium text-white">Groesse geprueft</span>
+                            <span className="text-xs text-slate-500">Format bewusst kontrolliert.</span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={item.verifiedFinishing}
+                            onChange={(event) => updateItem(item.id, { verifiedFinishing: event.target.checked })}
+                            className="mt-1 h-4 w-4 accent-cyan-200"
+                          />
+                          <span>
+                            <span className="block font-medium text-white">Konfektion geprueft</span>
+                            <span className="text-xs text-slate-500">Befestigung bewusst kontrolliert.</span>
+                          </span>
+                        </label>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
                 <Button type="button" variant="outline" onClick={addItem} className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">

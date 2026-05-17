@@ -13,6 +13,9 @@ export type AngebotDraftItem = {
   unitPrice: string;
   totalPrice: string;
   notes: string;
+  verifiedQuantity: boolean;
+  verifiedSize: boolean;
+  verifiedFinishing: boolean;
   uncertainFields: string[];
 };
 
@@ -92,6 +95,41 @@ function normalizeMoney(value: string) {
   return value.replace(/\s*EUR/i, "").trim();
 }
 
+function parseGermanAmount(value: string) {
+  const amount = Number(value.replace(/\s/g, "").replace(".", "").replace(",", "."));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatGermanAmount(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function calculateTotalPrice(quantity: string, unitPrice: string) {
+  const parsedQuantity = Number(quantity.replace(",", "."));
+  const parsedUnitPrice = parseGermanAmount(unitPrice);
+
+  if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || parsedUnitPrice < 0 || !unitPrice.trim()) {
+    return "";
+  }
+
+  return formatGermanAmount(parsedQuantity * parsedUnitPrice);
+}
+
+function extractCurrencyAmounts(value: string) {
+  return [...value.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})\s*EUR/gi)].map((match) => normalizeMoney(match[1]));
+}
+
+function cleanProductName(value: string) {
+  return value
+    .replace(/\b\d+(?:,\d+)?\s*Stk\b/gi, "")
+    .replace(/\d{1,3}(?:\.\d{3})*,\d{2}\s*EUR/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function classifyAngebotItem(productName: string, details = ""): OrderItemType {
   const haystack = `${productName} ${details}`.toLowerCase();
 
@@ -149,13 +187,13 @@ function parseLineItem(line: string, index: number): AngebotDraftItem | null {
     /(?:menge|anzahl|stueck|stück|qty)[:\s]+(\d+)/i,
     /\b(\d+)\s*(?:st\.?|stk\.?|stück|stueck)\b/i,
   ]);
-  const prices = [...body.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:EUR|€)?/gi)].map((match) => normalizeMoney(match[1]));
+  const prices = extractCurrencyAmounts(body);
   const cleanName = body
-    .replace(/\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:EUR|€)?/gi, "")
+    .replace(/\d{1,3}(?:\.\d{3})*,\d{2}\s*EUR/gi, "")
     .replace(/\b\d+\s*(?:st\.?|stk\.?|stück|stueck)\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-  const productName = cleanName.replace(/^(?:artikel|produkt)[:\s]+/i, "").trim();
+  const productName = cleanProductName(cleanName.replace(/^(?:artikel|produkt)[:\s]+/i, ""));
   const itemType = classifyAngebotItem(productName, body);
   const uncertainFields = [
     !productName ? "productName" : "",
@@ -175,23 +213,28 @@ function parseLineItem(line: string, index: number): AngebotDraftItem | null {
     material: detectMaterial(body),
     finishing: detectFinishing(body),
     unitPrice: prices[0] ?? "",
-    totalPrice: prices.at(-1) ?? "",
+    totalPrice: calculateTotalPrice(quantity || "1", prices[0] ?? ""),
     notes: "",
+    verifiedQuantity: false,
+    verifiedSize: false,
+    verifiedFinishing: false,
     uncertainFields,
   };
 }
 
 function parseItemBlock(block: string, index: number): AngebotDraftItem | null {
+  const blockLines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+  const firstLineMatch = blockLines[0]?.match(/^(\d+)\.\s+(.+)$/);
   const normalized = block.replace(/\s+/g, " ").trim();
-  const itemMatch = normalized.match(/^(\d+)\.\s+(.+?)(?=\s+\d+(?:,\d+)?\s*Stk\b|\s+\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:EUR|€)|$)/i);
+  const itemMatch = normalized.match(/^(\d+)\.\s+(.+?)(?=\s+\d+(?:,\d+)?\s*Stk\b|\s+\d{1,3}(?:\.\d{3})*,\d{2}\s*EUR|$)/i);
 
   if (!itemMatch) {
     return parseLineItem(block, index);
   }
 
-  const productName = itemMatch[2].trim();
+  const productName = cleanProductName(firstLineMatch?.[2].trim() || itemMatch[2].trim());
   const quantity = findFirst(normalized, [/\b(\d+(?:,\d+)?)\s*Stk\b/i]);
-  const prices = [...normalized.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:EUR|€)?/gi)].map((match) => normalizeMoney(match[1]));
+  const prices = extractCurrencyAmounts(normalized);
   const itemType = classifyAngebotItem(productName, normalized);
   const size = detectSize(normalized);
   const material = detectMaterial(normalized);
@@ -214,8 +257,11 @@ function parseItemBlock(block: string, index: number): AngebotDraftItem | null {
     material,
     finishing,
     unitPrice: prices[0] ?? "",
-    totalPrice: prices.at(-1) ?? "",
+    totalPrice: calculateTotalPrice(quantity ? quantity.replace(",", ".") : "1", prices[0] ?? ""),
     notes: itemType === "production_item" ? "" : normalized.replace(productName, "").trim(),
+    verifiedQuantity: false,
+    verifiedSize: false,
+    verifiedFinishing: false,
     uncertainFields,
   };
 }
@@ -301,8 +347,6 @@ export function parseAngebotText(text: string, sourceFileName: string): AngebotD
     /\b(AN[-\s]?\d{4,})\b/i,
   ]);
   const offerDateRaw = findFirst(normalizedText, [/(?:angebotsdatum|datum)[:\s]+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]);
-  const email = findFirst(normalizedText, [/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i]);
-  const phone = findFirst(normalizedText, [/(?:telefon|tel\.?|phone)[:\s]+([+0-9 ()/-]{6,})/i]);
   const address = detectAddress(normalizedText);
   const total = findFirst(normalizedText, [
     /(?:gesamtbetrag|endbetrag|summe|gesamt)[:\s]+(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:EUR|€)?/i,
@@ -311,7 +355,6 @@ export function parseAngebotText(text: string, sourceFileName: string): AngebotD
   const uncertainFields = [
     !offerNumber ? "offerNumber" : "",
     !address.company && !address.name ? "customerName" : "",
-    !email ? "customerEmail" : "",
     items.length === 0 ? "items" : "",
   ].filter(Boolean);
 
@@ -320,8 +363,8 @@ export function parseAngebotText(text: string, sourceFileName: string): AngebotD
     offerNumber,
     offerDate: normalizeDate(offerDateRaw),
     customerName: address.company || address.name,
-    customerEmail: email,
-    customerPhone: phone,
+    customerEmail: "",
+    customerPhone: "",
     billingCompany: address.company,
     billingName: address.name,
     billingStreet: address.street,

@@ -314,6 +314,9 @@ export function OrderDetailWorkspace({
     });
   }, [items]);
   const splitAcrossManufacturers = productionGroups.length > 1;
+  const hasSentProductionItems = items.some(
+    (item) => item.production.status === "sent" || item.production.status === "confirmed" || item.production.status === "produced" || Boolean(item.production.batchId)
+  );
   const archived = status === "Shipped" || status === "Completed";
 
   function addTimelineEntry(message: string) {
@@ -826,26 +829,28 @@ export function OrderDetailWorkspace({
                   </div>
                 ))}
               </div>
-              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-amber-100">Produktion neu pruefen</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">
-                      Setzt die Produktion fuer diesen Auftrag zurueck und verschiebt ihn in die Druckdatenpruefung.
-                    </p>
+              {hasSentProductionItems ? (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-amber-100">Produktion neu pruefen</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        Setzt die Produktion fuer diesen Auftrag zurueck und verschiebt ihn in die Druckdatenpruefung.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={resetProductionWorkflow}
+                      disabled={savingOrderAction === "production-reset"}
+                      className="rounded-xl border-amber-500/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      {savingOrderAction === "production-reset" ? "Speichern..." : "Produktion zuruecksetzen"}
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={resetProductionWorkflow}
-                    disabled={savingOrderAction === "production-reset"}
-                    className="rounded-xl border-amber-500/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15"
-                  >
-                    <Undo2 className="h-4 w-4" />
-                    {savingOrderAction === "production-reset" ? "Speichern..." : "Produktion zuruecksetzen"}
-                  </Button>
                 </div>
-              </div>
+              ) : null}
             </div>
           </DetailCard>
 

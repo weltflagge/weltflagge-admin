@@ -65,6 +65,10 @@ export function getOrderNextAction(order: Order): OrderNextAction {
   const productionItems = order.items.filter(isProductionItem);
   const printFiles = productionItems.flatMap(getPrintFiles);
 
+  if (order.status === "Cancelled") {
+    return { label: "Storniert", tone: "done" };
+  }
+
   if (order.status === "Shipped" || order.status === "Completed") {
     return { label: "Abgeschlossen", tone: "done" };
   }

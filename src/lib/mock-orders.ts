@@ -38,6 +38,7 @@ export const statuses: OrderStatus[] = [
   "Ready to ship",
   "Shipped",
   "Completed",
+  "Cancelled",
 ];
 
 export const statusConfig: Record<OrderStatus, StatusConfig> = {
@@ -95,6 +96,11 @@ export const statusConfig: Record<OrderStatus, StatusConfig> = {
     icon: CheckCircle2,
     chip: "border-slate-700 bg-slate-950 text-slate-400",
     accent: "from-slate-400 to-slate-600",
+  },
+  Cancelled: {
+    icon: AlertTriangle,
+    chip: "border-red-500/25 bg-red-500/10 text-red-200",
+    accent: "from-red-400 to-red-300",
   },
 };
 

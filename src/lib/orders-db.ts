@@ -22,7 +22,7 @@ const statusMap: Record<string, OrderStatus> = {
   READY_TO_SHIP: "Ready to ship",
   SHIPPED: "Shipped",
   COMPLETED: "Completed",
-  CANCELLED: "Customer reply needed",
+  CANCELLED: "Cancelled",
 };
 
 const printFileStatusMap: Record<string, PrintFileStatus> = {
@@ -220,6 +220,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
         id: item.id,
         name: item.productName,
         sku: item.sku ?? `line-${item.lineNumber}`,
+        material: item.material ?? undefined,
         size: item.size ?? "-",
         quantity: item.quantity,
         itemType: itemTypeMap[item.itemType] ?? "production_item",
@@ -300,6 +301,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
         id: item.id,
         name: item.productName,
         sku: item.sku ?? `line-${item.lineNumber}`,
+        material: item.material ?? undefined,
         size: item.size ?? "-",
         quantity: item.quantity,
         itemType: itemTypeMap[item.itemType] ?? "production_item",

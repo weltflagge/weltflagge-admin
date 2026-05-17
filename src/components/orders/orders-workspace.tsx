@@ -74,7 +74,7 @@ function includesSearch(order: Order, search: string) {
 
 function matchesQuickView(order: Order, view: QuickView) {
   if (view === "active") {
-    return order.status !== "Shipped" && order.status !== "Completed";
+    return order.status !== "Shipped" && order.status !== "Completed" && order.status !== "Cancelled";
   }
 
   if (view === "needs_action") {
@@ -93,7 +93,7 @@ function matchesQuickView(order: Order, view: QuickView) {
     return order.status === "Ready to ship" || getOrderNextAction(order).label === "Versand vorbereiten";
   }
 
-  return order.status === "Shipped" || order.status === "Completed";
+  return order.status === "Shipped" || order.status === "Completed" || order.status === "Cancelled";
 }
 
 function FilterButton({

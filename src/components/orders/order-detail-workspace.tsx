@@ -12,10 +12,13 @@ import {
   MapPin,
   Package,
   PackageCheck,
+  Pencil,
   Send,
+  Trash2,
   Truck,
   Undo2,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -40,6 +43,7 @@ const editableOrderStatuses: OrderStatus[] = [
   "Ready to ship",
   "Shipped",
   "Completed",
+  "Cancelled",
 ];
 const editablePriorities: OrderPriority[] = ["normal", "high", "urgent"];
 const editInputClass =
@@ -106,7 +110,23 @@ type OrderEditAction = (input: {
 
 type OrderArchiveAction = (input: {
   orderNumber: string;
-  action: "ship" | "complete" | "reopen";
+  action: "ship" | "complete" | "reopen" | "cancel";
+}) => Promise<{
+  ok: boolean;
+  error?: string;
+  timelineEntry?: ActivityLogEntry;
+}>;
+
+type OrderItemEditAction = (input: {
+  orderNumber: string;
+  itemId?: string;
+  sku: string;
+  productName: string;
+  skuValue: string;
+  material: string;
+  size: string;
+  quantity: number;
+  itemType: OrderItemType;
 }) => Promise<{
   ok: boolean;
   error?: string;
@@ -252,12 +272,27 @@ function getPrintFileCompleteness(item: OrderItem) {
   return { label: "Complete", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" };
 }
 
+function createItemDraft(item: OrderItem) {
+  return {
+    itemKey: getItemKey(item),
+    itemId: item.id,
+    originalSku: item.sku,
+    name: item.name,
+    sku: item.sku,
+    material: item.material ?? "",
+    size: item.size === "-" ? "" : item.size,
+    quantity: String(item.quantity),
+    itemType: item.itemType ?? "production_item",
+  };
+}
+
 export function OrderDetailWorkspace({
   order,
   onPrintFileUpdate,
   onStatusUpdate,
   onTrackingUpdate,
   onOrderEdit,
+  onItemEdit,
   onArchiveUpdate,
   onProductionReset,
 }: {
@@ -266,6 +301,7 @@ export function OrderDetailWorkspace({
   onStatusUpdate?: StatusUpdateAction;
   onTrackingUpdate?: TrackingUpdateAction;
   onOrderEdit?: OrderEditAction;
+  onItemEdit?: OrderItemEditAction;
   onArchiveUpdate?: OrderArchiveAction;
   onProductionReset?: ProductionResetAction;
 }) {
@@ -298,11 +334,14 @@ export function OrderDetailWorkspace({
   const [carrier, setCarrier] = useState(order.carrier === "-" ? "" : order.carrier);
   const [trackingNumber, setTrackingNumber] = useState(order.trackingNumber);
   const [savingPrintFileKey, setSavingPrintFileKey] = useState<string | null>(null);
-  const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | "production-reset" | null>(null);
+  const [savingOrderAction, setSavingOrderAction] = useState<"status" | "tracking" | "production-reset" | "cancel" | null>(null);
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
+  const [savingItemEdit, setSavingItemEdit] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [itemEditMessage, setItemEditMessage] = useState<string | null>(null);
+  const [itemDraft, setItemDraft] = useState<ReturnType<typeof createItemDraft> | null>(null);
 
   const productionItems = useMemo(() => items.filter(isProductionItem), [items]);
   const allPrintFilesApproved = useMemo(
@@ -335,7 +374,11 @@ export function OrderDetailWorkspace({
       (item.itemType ?? "production_item") === "production_item" &&
       (item.production.status === "sent" || item.production.status === "confirmed" || item.production.status === "produced" || Boolean(item.production.batchId))
   );
-  const archived = status === "Shipped" || status === "Completed";
+  const completed = status === "Completed";
+  const cancelled = status === "Cancelled";
+  const locked = completed || cancelled;
+  const archived = status === "Shipped" || completed || cancelled;
+  const canResetProduction = hasSentProductionItems && !cancelled;
 
   function addTimelineEntry(message: string) {
     setTimeline((currentTimeline) => [
@@ -350,6 +393,11 @@ export function OrderDetailWorkspace({
   }
 
   async function persistPrintFileUpdate(item: OrderItem, side: PrintFile["side"], fileName: string, status: PrintFileStatus) {
+    if (locked) {
+      setSaveMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     if (!onPrintFileUpdate) {
       return;
     }
@@ -394,6 +442,11 @@ export function OrderDetailWorkspace({
   }
 
   async function markWorkflowStatus(nextStatus: Extract<OrderStatus, "In production" | "Ready to ship">) {
+    if (locked) {
+      setSaveMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     const fallbackMessage =
       nextStatus === "In production" ? "Auftrag wurde in Produktion gesetzt." : "Auftrag wurde versandbereit gesetzt.";
 
@@ -419,6 +472,11 @@ export function OrderDetailWorkspace({
   }
 
   async function saveTrackingNumber() {
+    if (locked) {
+      setTrackingMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     const nextCarrier = carrier.trim();
     const nextTrackingNumber = trackingNumber.trim();
 
@@ -467,12 +525,17 @@ export function OrderDetailWorkspace({
   }
 
   async function saveOrderEdits() {
+    if (locked) {
+      setEditMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     if (!customerDraft.name.trim() || !customerDraft.email.trim()) {
       setEditMessage("Kundenname und E-Mail sind erforderlich.");
       return;
     }
 
-    if ((status === "Shipped" || status === "Completed") && (!carrier.trim() || !trackingNumber.trim())) {
+    if (status === "Shipped" && (!carrier.trim() || !trackingNumber.trim())) {
       setEditMessage("Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich.");
       return;
     }
@@ -518,16 +581,28 @@ export function OrderDetailWorkspace({
     }
   }
 
-  async function updateArchiveStatus(action: "ship" | "complete" | "reopen") {
+  async function updateArchiveStatus(action: "ship" | "complete" | "reopen" | "cancel") {
+    if (completed && action !== "reopen") {
+      setSaveMessage("Abgeschlossene Auftraege sind gesperrt. Bitte Produktion zuruecksetzen, wenn noch etwas geaendert werden muss.");
+      return;
+    }
+
+    if (cancelled && action !== "reopen") {
+      setSaveMessage("Stornierte Auftraege sind gesperrt. Bitte zuerst wieder oeffnen.");
+      return;
+    }
+
     if ((action === "ship" || action === "complete") && (!carrier.trim() || !trackingNumber.trim())) {
       setTrackingMessage("Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich.");
       return;
     }
 
-    const nextStatus: OrderStatus = action === "reopen" ? "In production" : action === "complete" ? "Completed" : "Shipped";
+    const nextStatus: OrderStatus = action === "reopen" ? "Print files review" : action === "cancel" ? "Cancelled" : action === "complete" ? "Completed" : "Shipped";
     const fallbackMessage =
       action === "reopen"
-        ? "Auftrag wurde wieder geoeffnet und in Produktion gesetzt."
+        ? "Auftrag wurde wieder geoeffnet und in Druckdatenpruefung gesetzt."
+        : action === "cancel"
+          ? "Auftrag wurde storniert."
         : action === "complete"
           ? "Auftrag wurde abgeschlossen."
           : "Auftrag wurde als versendet markiert.";
@@ -539,7 +614,7 @@ export function OrderDetailWorkspace({
       return;
     }
 
-    setSavingOrderAction("status");
+    setSavingOrderAction(action === "cancel" ? "cancel" : "status");
     setTrackingMessage(null);
     setSaveMessage(null);
 
@@ -591,7 +666,100 @@ export function OrderDetailWorkspace({
     }
   }
 
+  async function saveItemDraft() {
+    if (!itemDraft) {
+      return;
+    }
+
+    if (locked) {
+      setItemEditMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
+    const quantity = Number(itemDraft.quantity);
+
+    if (!itemDraft.name.trim()) {
+      setItemEditMessage("Produktname ist erforderlich.");
+      return;
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setItemEditMessage("Stueckzahl muss eine ganze Zahl groesser 0 sein.");
+      return;
+    }
+
+    const fallbackMessage = `Produkt bearbeitet: ${itemDraft.name.trim()}.`;
+
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        getItemKey(item) === itemDraft.itemKey
+          ? {
+              ...item,
+              name: itemDraft.name.trim(),
+              sku: itemDraft.sku.trim() || item.sku,
+              material: itemDraft.material.trim() || undefined,
+              size: itemDraft.size.trim() || "-",
+              quantity,
+              itemType: itemDraft.itemType,
+              production:
+                itemDraft.itemType === "production_item"
+                  ? {
+                      ...item.production,
+                      status: "draft",
+                      batchId: undefined,
+                    }
+                  : item.production,
+            }
+          : item
+      )
+    );
+
+    if (!onItemEdit) {
+      addTimelineEntry(fallbackMessage);
+      setItemEditMessage("Produkt lokal aktualisiert.");
+      setItemDraft(null);
+      return;
+    }
+
+    setSavingItemEdit(true);
+    setItemEditMessage(null);
+
+    try {
+      const result = await onItemEdit({
+        orderNumber: order.id,
+        itemId: itemDraft.itemId,
+        sku: itemDraft.originalSku,
+        productName: itemDraft.name,
+        skuValue: itemDraft.sku,
+        material: itemDraft.material,
+        size: itemDraft.size,
+        quantity,
+        itemType: itemDraft.itemType,
+      });
+
+      if (result.ok && result.timelineEntry) {
+        setTimeline((currentTimeline) => [result.timelineEntry!, ...currentTimeline]);
+        setStatus("Print files review");
+        setItemEditMessage("Produkt gespeichert.");
+        setItemDraft(null);
+        router.refresh();
+        return;
+      }
+
+      setItemEditMessage(result.error ?? "Produkt konnte nicht gespeichert werden.");
+    } catch {
+      setItemEditMessage("Produkt konnte nicht gespeichert werden.");
+    } finally {
+      setSavingItemEdit(false);
+    }
+  }
+
   function updatePrintFileName(itemKey: string, side: PrintFile["side"]) {
+    if (locked) {
+      setSaveMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     const printFileKey = `${itemKey}-${side ?? "front"}`;
     const nextFileName = fileNameDrafts[printFileKey]?.trim() ?? "";
     const item = items.find((currentItem) => getItemKey(currentItem) === itemKey);
@@ -642,6 +810,11 @@ export function OrderDetailWorkspace({
   }
 
   function updatePrintFileStatus(itemKey: string, side: PrintFile["side"], status: PrintFileStatus) {
+    if (locked) {
+      setSaveMessage("Dieser Auftrag ist gesperrt. Bitte zuerst wieder oeffnen oder Produktion zuruecksetzen.");
+      return;
+    }
+
     const item = items.find((currentItem) => getItemKey(currentItem) === itemKey);
 
     if (!item) {
@@ -716,7 +889,7 @@ export function OrderDetailWorkspace({
             ) : null}
             {archived ? (
               <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-300">
-                Archiviert
+                {cancelled ? "Storniert" : "Archiviert"}
               </span>
             ) : null}
           </div>
@@ -732,6 +905,14 @@ export function OrderDetailWorkspace({
           </p>
         </div>
       </header>
+
+      {locked ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+          {completed
+            ? "Dieser Auftrag ist abgeschlossen und gesperrt. Aenderungen sind erst nach Produktion zuruecksetzen moeglich."
+            : "Dieser Auftrag ist storniert und gesperrt. Zum Bearbeiten muss er zuerst wieder geoeffnet werden."}
+        </div>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_22rem]">
         <div className="space-y-5">
@@ -852,7 +1033,7 @@ export function OrderDetailWorkspace({
                   </div>
                 ))}
               </div>
-              {hasSentProductionItems ? (
+              {canResetProduction ? (
                 <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -891,9 +1072,21 @@ export function OrderDetailWorkspace({
                         <p className="font-medium text-white">{item.name}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                           <span>{item.sku} - {item.size} - Stueck {item.quantity}</span>
+                          {item.material ? <span>{item.material}</span> : null}
                           <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-300">
                             {itemTypeLabels[item.itemType ?? "production_item"]}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItemDraft(createItemDraft(item));
+                              setItemEditMessage(null);
+                            }}
+                            disabled={locked}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Produkt bearbeiten
+                          </button>
                         </div>
                       </div>
                       {productionItem ? (
@@ -945,11 +1138,13 @@ export function OrderDetailWorkspace({
                                   }))
                                 }
                                 placeholder={`${side} Druckdatei eintragen...`}
+                                disabled={locked}
                                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
                               />
                               <select
                                 value={printFile.status}
                                 onChange={(event) => updatePrintFileStatus(itemKey, side, event.target.value as PrintFileStatus)}
+                                disabled={locked}
                                 className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/40"
                                 aria-label={`Druckdatenstatus fuer ${item.sku} ${side}`}
                               >
@@ -963,7 +1158,7 @@ export function OrderDetailWorkspace({
                                 type="button"
                                 variant="outline"
                                 onClick={() => updatePrintFileName(itemKey, side)}
-                                disabled={savingPrintFileKey === printFileKey}
+                                disabled={locked || savingPrintFileKey === printFileKey}
                                 className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
                               >
                                 {savingPrintFileKey === printFileKey ? "Speichern..." : "Druckdatei speichern"}
@@ -1008,7 +1203,7 @@ export function OrderDetailWorkspace({
 
         <aside className="space-y-5">
           <DetailCard title="Auftrag bearbeiten" icon={ClipboardList}>
-            <div className="space-y-3">
+            <fieldset disabled={locked} className="space-y-3 disabled:opacity-55">
               <label className="block space-y-2 text-sm text-slate-400">
                 <span>Auftragsstatus</span>
                 <select value={status} onChange={(event) => setStatus(event.target.value as OrderStatus)} className={editInputClass}>
@@ -1104,14 +1299,16 @@ export function OrderDetailWorkspace({
                 type="button"
                 variant="outline"
                 onClick={saveOrderEdits}
-                disabled={savingOrderEdit}
+                disabled={locked || savingOrderEdit}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <FileCheck2 className="h-4 w-4" />
                 {savingOrderEdit ? "Speichern..." : "Auftrag speichern"}
               </Button>
-              <p className="text-xs leading-5 text-slate-500">{editMessage ?? "Kunde, Versandadresse, Zahlung, Status und Prioritaet koennen hier angepasst werden."}</p>
-            </div>
+              <p className="text-xs leading-5 text-slate-500">
+                {editMessage ?? (locked ? "Dieser Auftrag ist aktuell gesperrt." : "Kunde, Versandadresse, Zahlung, Status und Prioritaet koennen hier angepasst werden.")}
+              </p>
+            </fieldset>
           </DetailCard>
 
           <DetailCard title="Uebersicht" icon={FileCheck2}>
@@ -1133,6 +1330,7 @@ export function OrderDetailWorkspace({
                 value={carrier}
                 onChange={(event) => setCarrier(event.target.value)}
                 placeholder="DPD, UPS, DHL..."
+                disabled={locked}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
               <label className="block text-sm text-slate-400" htmlFor="tracking-number">
@@ -1143,20 +1341,21 @@ export function OrderDetailWorkspace({
                 value={trackingNumber}
                 onChange={(event) => setTrackingNumber(event.target.value)}
                 placeholder="Sendungsnummer eintragen..."
+                disabled={locked}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10"
               />
               <Button
                 type="button"
                 variant="outline"
                 onClick={saveTrackingNumber}
-                disabled={savingOrderAction === "tracking"}
+                disabled={locked || savingOrderAction === "tracking"}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Send className="h-4 w-4" />
                 {savingOrderAction === "tracking" ? "Speichern..." : "Versand speichern"}
               </Button>
               <p className="text-xs leading-5 text-slate-500">
-                {trackingMessage ?? "Versanddaten sind ein separater Schritt nach der Produktion."}
+                {trackingMessage ?? (locked ? "Dieser Auftrag ist aktuell gesperrt." : "Versanddaten sind ein separater Schritt nach der Produktion.")}
               </p>
             </div>
           </DetailCard>
@@ -1167,7 +1366,7 @@ export function OrderDetailWorkspace({
                 type="button"
                 variant="outline"
                 onClick={() => markWorkflowStatus("In production")}
-                disabled={savingOrderAction === "status"}
+                disabled={locked || savingOrderAction === "status"}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Package className="h-4 w-4" />
@@ -1177,7 +1376,7 @@ export function OrderDetailWorkspace({
                 type="button"
                 variant="outline"
                 onClick={() => markWorkflowStatus("Ready to ship")}
-                disabled={savingOrderAction === "status"}
+                disabled={locked || savingOrderAction === "status"}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <PackageCheck className="h-4 w-4" />
@@ -1187,7 +1386,7 @@ export function OrderDetailWorkspace({
                 type="button"
                 variant="outline"
                 onClick={() => updateArchiveStatus("ship")}
-                disabled={savingOrderAction === "status" || status === "Shipped" || status === "Completed"}
+                disabled={locked || savingOrderAction === "status" || status === "Shipped"}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <Truck className="h-4 w-4" />
@@ -1197,13 +1396,25 @@ export function OrderDetailWorkspace({
                 type="button"
                 variant="outline"
                 onClick={() => updateArchiveStatus("complete")}
-                disabled={savingOrderAction === "status" || status === "Completed"}
+                disabled={locked || savingOrderAction === "status"}
                 className="w-full justify-start rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
               >
                 <PackageCheck className="h-4 w-4" />
                 {savingOrderAction === "status" ? "Speichern..." : "Auftrag abschliessen"}
               </Button>
-              {archived ? (
+              {!locked ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => updateArchiveStatus("cancel")}
+                  disabled={savingOrderAction === "cancel"}
+                  className="w-full justify-start rounded-xl border-red-500/25 bg-red-500/10 text-red-100 hover:bg-red-500/15"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {savingOrderAction === "cancel" ? "Speichern..." : "Bestellung stornieren"}
+                </Button>
+              ) : null}
+              {(status === "Shipped" || cancelled) ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -1219,6 +1430,109 @@ export function OrderDetailWorkspace({
           </DetailCard>
         </aside>
       </section>
+
+      {itemDraft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={() => setItemDraft(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Produkt bearbeiten"
+            className="w-full max-w-2xl rounded-xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/50"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 p-5">
+              <div>
+                <p className="text-sm font-medium text-cyan-200">Produkt bearbeiten</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">{itemDraft.name || "Position"}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setItemDraft(null)}
+                className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300 transition hover:bg-slate-800 hover:text-white"
+                aria-label="Schliessen"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
+              <label className="block space-y-2 text-sm text-slate-400 md:col-span-2">
+                <span>Produktname</span>
+                <input
+                  value={itemDraft.name}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, name: event.target.value } : draft))}
+                  className={editInputClass}
+                />
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>SKU</span>
+                <input
+                  value={itemDraft.sku}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, sku: event.target.value } : draft))}
+                  className={editInputClass}
+                />
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Typ</span>
+                <select
+                  value={itemDraft.itemType}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, itemType: event.target.value as OrderItemType } : draft))}
+                  className={editInputClass}
+                >
+                  {Object.entries(itemTypeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Groesse</span>
+                <input
+                  value={itemDraft.size}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, size: event.target.value } : draft))}
+                  className={editInputClass}
+                />
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Material</span>
+                <input
+                  value={itemDraft.material}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, material: event.target.value } : draft))}
+                  className={editInputClass}
+                />
+              </label>
+              <label className="block space-y-2 text-sm text-slate-400">
+                <span>Stueck</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={itemDraft.quantity}
+                  onChange={(event) => setItemDraft((draft) => (draft ? { ...draft, quantity: event.target.value } : draft))}
+                  className={editInputClass}
+                />
+              </label>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs leading-5 text-slate-400">
+                Bei Produktionsartikeln wird die Produktion nach dem Speichern wieder in die Druckdatenpruefung gesetzt.
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-slate-800 p-5 md:flex-row md:items-center md:justify-between">
+              <p className="text-xs text-slate-500">{itemEditMessage ?? "Aendere nur die Produktdaten, die wirklich korrigiert werden muessen."}</p>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setItemDraft(null)} className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
+                  Abbrechen
+                </Button>
+                <Button type="button" onClick={saveItemDraft} disabled={savingItemEdit} className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+                  <Pencil className="h-4 w-4" />
+                  {savingItemEdit ? "Speichern..." : "Produkt speichern"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

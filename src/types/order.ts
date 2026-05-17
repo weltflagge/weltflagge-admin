@@ -13,7 +13,8 @@ export type OrderStatus =
   | "In production"
   | "Ready to ship"
   | "Shipped"
-  | "Completed";
+  | "Completed"
+  | "Cancelled";
 
 export type OrderPriority = "normal" | "high" | "urgent";
 
@@ -40,6 +41,7 @@ export type OrderItem = {
   id?: string;
   name: string;
   sku: string;
+  material?: string;
   size: string;
   quantity: number;
   itemType?: OrderItemType;

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ActivityLogEntry, Order, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import type { ActivityLogEntry, Order, OrderItemType, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
 type PrintFileUpdateInput = {
@@ -48,11 +48,23 @@ type EditableOrderUpdateInput = {
 
 type OrderArchiveInput = {
   orderNumber: string;
-  action: "ship" | "complete" | "reopen";
+  action: "ship" | "complete" | "reopen" | "cancel";
 };
 
 type ProductionResetInput = {
   orderNumber: string;
+};
+
+type OrderItemUpdateInput = {
+  orderNumber: string;
+  itemId?: string;
+  sku: string;
+  productName: string;
+  skuValue: string;
+  material: string;
+  size: string;
+  quantity: number;
+  itemType: OrderItemType;
 };
 
 type OrderActionResult = {
@@ -79,7 +91,7 @@ const dbOrderStatusByUiStatus: Record<OrderStatusUpdateInput["status"], "IN_PROD
   "Ready to ship": "READY_TO_SHIP",
 };
 
-const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "PRINT_FILES_MISSING" | "PRINT_FILES_REVIEW" | "CUSTOMER_REPLY_NEEDED" | "APPROVAL_MISSING" | "PRODUCTION_READY" | "IN_PRODUCTION" | "READY_TO_SHIP" | "SHIPPED" | "COMPLETED"> = {
+const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "PRINT_FILES_MISSING" | "PRINT_FILES_REVIEW" | "CUSTOMER_REPLY_NEEDED" | "APPROVAL_MISSING" | "PRODUCTION_READY" | "IN_PRODUCTION" | "READY_TO_SHIP" | "SHIPPED" | "COMPLETED" | "CANCELLED"> = {
   New: "NEW",
   "Payment open": "PAYMENT_OPEN",
   "Print files missing": "PRINT_FILES_MISSING",
@@ -91,6 +103,14 @@ const dbAnyOrderStatusByUiStatus: Record<OrderStatus, "NEW" | "PAYMENT_OPEN" | "
   "Ready to ship": "READY_TO_SHIP",
   Shipped: "SHIPPED",
   Completed: "COMPLETED",
+  Cancelled: "CANCELLED",
+};
+
+const dbItemTypeByUiType: Record<OrderItemType, "PRODUCTION_ITEM" | "ACCESSORY_ITEM" | "SERVICE_ITEM" | "SHIPPING_ITEM"> = {
+  production_item: "PRODUCTION_ITEM",
+  accessory_item: "ACCESSORY_ITEM",
+  service_item: "SERVICE_ITEM",
+  shipping_item: "SHIPPING_ITEM",
 };
 
 const dbPriorityByUiPriority: Record<OrderPriority, "NORMAL" | "HIGH" | "URGENT"> = {
@@ -122,6 +142,10 @@ function formatTimestamp(date: Date) {
   }).format(date);
 }
 
+function isLockedOrderStatus(status: string) {
+  return status === "COMPLETED" || status === "CANCELLED";
+}
+
 export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Promise<PrintFileUpdateResult> {
   if (!hasDatabaseUrl()) {
     return {
@@ -145,6 +169,10 @@ export async function updateOrderItemPrintFile(input: PrintFileUpdateInput): Pro
 
   if (!orderItem) {
     return { ok: false, error: `No order item found for ${input.itemId ? "selected line item" : `SKU ${input.sku}`}.` };
+  }
+
+  if (isLockedOrderStatus(orderItem.order.status)) {
+    return { ok: false, error: "Dieser Auftrag ist abgeschlossen oder storniert und kann nicht bearbeitet werden." };
   }
 
   const message = fileName
@@ -233,11 +261,15 @@ export async function updateOrderWorkflowStatus(input: OrderStatusUpdateInput): 
 
   const order = await prisma.order.findUnique({
     where: { orderNumber: input.orderNumber },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 
   if (!order) {
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  if (isLockedOrderStatus(order.status)) {
+    return { ok: false, error: "Dieser Auftrag ist abgeschlossen oder storniert und kann nicht bearbeitet werden." };
   }
 
   const activity = await prisma.$transaction(async (tx) => {
@@ -291,11 +323,15 @@ export async function updateOrderTracking(input: TrackingUpdateInput): Promise<O
 
   const order = await prisma.order.findUnique({
     where: { orderNumber: input.orderNumber },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 
   if (!order) {
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  if (isLockedOrderStatus(order.status)) {
+    return { ok: false, error: "Dieser Auftrag ist abgeschlossen oder storniert und kann nicht bearbeitet werden." };
   }
 
   const message = carrier
@@ -361,6 +397,10 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
 
   if (!order) {
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  if (isLockedOrderStatus(order.status)) {
+    return { ok: false, error: "Dieser Auftrag ist abgeschlossen oder storniert und kann nicht bearbeitet werden." };
   }
 
   if ((input.status === "Shipped" || input.status === "Completed") && (!order.carrier || !order.trackingNumber)) {
@@ -450,6 +490,7 @@ export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promis
     where: { orderNumber: input.orderNumber },
     select: {
       id: true,
+      status: true,
       carrier: true,
       trackingNumber: true,
     },
@@ -459,15 +500,25 @@ export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promis
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
   }
 
+  if (order.status === "COMPLETED") {
+    return { ok: false, error: "Abgeschlossene Auftraege sind gesperrt. Bitte zuerst Produktion zuruecksetzen." };
+  }
+
+  if (order.status === "CANCELLED" && input.action !== "reopen") {
+    return { ok: false, error: "Stornierte Auftraege sind gesperrt. Bitte zuerst wieder oeffnen." };
+  }
+
   if ((input.action === "ship" || input.action === "complete") && (!order.carrier || !order.trackingNumber)) {
     return { ok: false, error: "Versanddienst und Sendungsnummer sind vor Versand oder Abschluss erforderlich." };
   }
 
   const nextStatus =
-    input.action === "reopen" ? "IN_PRODUCTION" : input.action === "complete" ? "COMPLETED" : "SHIPPED";
+    input.action === "reopen" ? "PRINT_FILES_REVIEW" : input.action === "cancel" ? "CANCELLED" : input.action === "complete" ? "COMPLETED" : "SHIPPED";
   const message =
     input.action === "reopen"
-      ? "Auftrag wurde wieder geoeffnet und in Produktion gesetzt."
+      ? "Auftrag wurde wieder geoeffnet und in Druckdatenpruefung gesetzt."
+      : input.action === "cancel"
+        ? "Auftrag wurde storniert."
       : input.action === "complete"
         ? "Auftrag wurde abgeschlossen."
         : "Auftrag wurde als versendet markiert.";
@@ -503,6 +554,105 @@ export async function updateOrderArchiveStatus(input: OrderArchiveInput): Promis
   };
 }
 
+export async function updateOrderItemDetails(input: OrderItemUpdateInput): Promise<OrderActionResult> {
+  if (!hasDatabaseUrl()) {
+    return {
+      ok: false,
+      error: "DATABASE_URL is not configured yet, so this item change is only kept in local mock state.",
+    };
+  }
+
+  const productName = input.productName.trim();
+  const quantity = Number(input.quantity);
+
+  if (!productName) {
+    return { ok: false, error: "Produktname ist erforderlich." };
+  }
+
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return { ok: false, error: "Stueckzahl muss eine ganze Zahl groesser 0 sein." };
+  }
+
+  const prisma = getPrisma();
+  const now = new Date();
+  const orderItem = await prisma.orderItem.findFirst({
+    where: {
+      ...(input.itemId ? { id: input.itemId } : { sku: input.sku }),
+      order: { orderNumber: input.orderNumber },
+    },
+    include: { order: true },
+  });
+
+  if (!orderItem) {
+    return { ok: false, error: `No order item found for ${input.itemId ? "selected line item" : `SKU ${input.sku}`}.` };
+  }
+
+  if (isLockedOrderStatus(orderItem.order.status)) {
+    return { ok: false, error: "Dieser Auftrag ist abgeschlossen oder storniert und kann nicht bearbeitet werden." };
+  }
+
+  const activity = await prisma.$transaction(async (tx) => {
+    await tx.orderItem.update({
+      where: { id: orderItem.id },
+      data: {
+        productName,
+        sku: input.skuValue.trim() || null,
+        material: input.material.trim() || null,
+        size: input.size.trim() || null,
+        quantity,
+        itemType: dbItemTypeByUiType[input.itemType],
+      },
+    });
+
+    if (input.itemType === "production_item") {
+      await tx.orderItemProductionState.upsert({
+        where: { orderItemId: orderItem.id },
+        create: {
+          orderItemId: orderItem.id,
+          status: "DRAFT",
+          routingReason: "Produktdaten wurden manuell bearbeitet.",
+        },
+        update: {
+          status: "DRAFT",
+          sentAt: null,
+          currentBatchId: null,
+          routingReason: "Produktdaten wurden manuell bearbeitet.",
+        },
+      });
+
+      await tx.order.update({
+        where: { id: orderItem.orderId },
+        data: { status: "PRINT_FILES_REVIEW" },
+      });
+    }
+
+    return tx.activityLog.create({
+      data: {
+        entityType: "ORDER_ITEM",
+        actor: "Operator",
+        message: `Produkt bearbeitet: ${productName}.`,
+        orderId: orderItem.orderId,
+        orderItemId: orderItem.id,
+        createdAt: now,
+      },
+    });
+  });
+
+  revalidatePath(`/orders/${input.orderNumber}`);
+  revalidatePath("/orders");
+  revalidatePath("/production");
+
+  return {
+    ok: true,
+    timelineEntry: {
+      id: activity.id,
+      timestamp: formatTimestamp(activity.createdAt),
+      actor: activity.actor,
+      message: activity.message,
+    },
+  };
+}
+
 export async function resetOrderProduction(input: ProductionResetInput): Promise<OrderActionResult> {
   if (!hasDatabaseUrl()) {
     return {
@@ -515,11 +665,15 @@ export async function resetOrderProduction(input: ProductionResetInput): Promise
   const now = new Date();
   const order = await prisma.order.findUnique({
     where: { orderNumber: input.orderNumber },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 
   if (!order) {
     return { ok: false, error: `No order found for ${input.orderNumber}.` };
+  }
+
+  if (order.status === "CANCELLED") {
+    return { ok: false, error: "Stornierte Auftraege muessen zuerst wieder geoeffnet werden." };
   }
 
   const activity = await prisma.$transaction(async (tx) => {

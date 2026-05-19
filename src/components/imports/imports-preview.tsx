@@ -151,6 +151,7 @@ export function ImportsPreview({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [view, setView] = useState<ImportView>("active");
+  const [skippingIds, setSkippingIds] = useState<string[]>([]);
 
   const totals = useMemo(() => {
     const activeOrders = orders.filter((order) => order.importStatus !== "skipped" && order.importStatus !== "approved");
@@ -239,8 +240,12 @@ export function ImportsPreview({
       const result = await onSkipOrder(order.importDbId);
 
       if (result.ok) {
-        setOrders((current) => current.map((entry) => (entry.importDbId === order.importDbId ? { ...entry, importStatus: "skipped" } : entry)));
-        setMessage(`${order.orderNumber} wurde aus der aktiven Import Queue genommen.`);
+        setSkippingIds((current) => [...current, order.importDbId]);
+        window.setTimeout(() => {
+          setOrders((current) => current.map((entry) => (entry.importDbId === order.importDbId ? { ...entry, importStatus: "skipped" } : entry)));
+          setSkippingIds((current) => current.filter((id) => id !== order.importDbId));
+          setMessage(`${order.orderNumber} wurde aus der aktiven Import Queue genommen.`);
+        }, 450);
         return;
       }
 
@@ -345,8 +350,16 @@ export function ImportsPreview({
           </Card>
         ) : null}
 
-        {visibleOrders.map((order) => (
-          <Card key={order.importDbId} className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+        {visibleOrders.map((order) => {
+          const isSkipping = skippingIds.includes(order.importDbId);
+
+          return (
+          <Card
+            key={order.importDbId}
+            className={`overflow-hidden rounded-xl border-slate-800 bg-slate-950/70 shadow-none transition-all duration-500 ease-in-out ${
+              isSkipping ? "max-h-0 translate-x-24 scale-[0.98] border-transparent opacity-0 blur-sm" : "max-h-[2200px] translate-x-0 opacity-100 blur-0"
+            }`}
+          >
             <CardContent className="p-5">
               <div className="flex flex-col gap-4 border-b border-slate-800 pb-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
@@ -494,7 +507,8 @@ export function ImportsPreview({
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </section>
     </div>
   );

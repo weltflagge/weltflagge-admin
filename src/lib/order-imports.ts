@@ -469,7 +469,7 @@ export async function upsertOrderImport(payload: ExternalOrderPayload) {
     select: { status: true },
   });
 
-  if (existing?.status === "APPROVED") {
+  if (existing?.status === "APPROVED" || existing?.status === "SKIPPED") {
     return;
   }
 
@@ -676,6 +676,61 @@ export async function createOrderFromImport(importId: string, input: NormalizedI
   });
 
   return { ok: true, orderNumber };
+}
+
+export async function skipOrderImport(importId: string) {
+  if (!hasDatabaseUrl()) {
+    return { ok: false, error: "DATABASE_URL is not configured yet." };
+  }
+
+  const prisma = getPrisma();
+
+  await prisma.orderImport.update({
+    where: { id: importId },
+    data: {
+      status: "SKIPPED",
+      reviewNotes: "Manually skipped from import queue.",
+    },
+  });
+
+  return { ok: true };
+}
+
+export async function reopenOrderImport(importId: string) {
+  if (!hasDatabaseUrl()) {
+    return { ok: false, error: "DATABASE_URL is not configured yet." };
+  }
+
+  const prisma = getPrisma();
+  const orderImport = await prisma.orderImport.findUnique({
+    where: { id: importId },
+    select: {
+      status: true,
+      normalizedPayload: true,
+    },
+  });
+
+  if (!orderImport) {
+    return { ok: false, error: "Import wurde nicht gefunden." };
+  }
+
+  if (orderImport.status === "APPROVED") {
+    return { ok: false, error: "Bereits erstellte Auftraege koennen nicht zurueck in die Import Queue." };
+  }
+
+  const normalized = orderImport.normalizedPayload as NormalizedImportOrder;
+  const warnings = importWarnings(normalized);
+
+  await prisma.orderImport.update({
+    where: { id: importId },
+    data: {
+      status: warnings.length ? "NEEDS_REVIEW" : "PENDING",
+      reviewNotes: null,
+      warnings,
+    },
+  });
+
+  return { ok: true, status: warnings.length ? ("needs_review" as const) : ("pending" as const) };
 }
 
 export const mockExternalOrders: ExternalOrderPayload[] = [

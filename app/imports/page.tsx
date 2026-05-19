@@ -1,6 +1,6 @@
 import { ImportsPreview } from "@/src/components/imports/imports-preview";
 import { getStoredOrderImports, normalizedMockImports } from "@/src/lib/order-imports";
-import { approveImportedOrder, syncWeltflaggeWooOrders } from "./actions";
+import { approveImportedOrder, reopenImportedOrder, skipImportedOrder, syncWeltflaggeWooOrders } from "./actions";
 
 export default async function ImportsPage() {
   const storedImports = await getStoredOrderImports().catch((error) => {
@@ -17,5 +17,13 @@ export default async function ImportsPage() {
       lastSyncedAt: new Date().toISOString(),
     }));
 
-  return <ImportsPreview initialImports={initialImports} onSyncWoo={syncWeltflaggeWooOrders} onApproveOrder={approveImportedOrder} />;
+  return (
+    <ImportsPreview
+      initialImports={initialImports}
+      onSyncWoo={syncWeltflaggeWooOrders}
+      onApproveOrder={approveImportedOrder}
+      onSkipOrder={skipImportedOrder}
+      onReopenOrder={reopenImportedOrder}
+    />
+  );
 }

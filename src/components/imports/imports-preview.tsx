@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, PackageSearch, RefreshCcw, Save, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, PackageSearch, RefreshCcw, RotateCcw, Save, Send, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { sourceLabels } from "@/src/lib/mock-orders";
@@ -13,6 +13,9 @@ import type { ManufacturerId } from "@/src/types/production";
 
 type SyncAction = () => Promise<{ ok: boolean; message?: string; error?: string }>;
 type ApproveAction = (importId: string, input: NormalizedImportOrder) => Promise<{ ok: boolean; orderNumber?: string; error?: string }>;
+type SkipAction = (importId: string) => Promise<{ ok: boolean; error?: string }>;
+type ReopenAction = (importId: string) => Promise<{ ok: boolean; status?: "pending" | "needs_review"; error?: string }>;
+type ImportView = "active" | "skipped" | "approved";
 
 const inputClass =
   "w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10";
@@ -135,22 +138,41 @@ export function ImportsPreview({
   initialImports,
   onSyncWoo,
   onApproveOrder,
+  onSkipOrder,
+  onReopenOrder,
 }: {
   initialImports: StoredOrderImport[];
   onSyncWoo: SyncAction;
   onApproveOrder: ApproveAction;
+  onSkipOrder: SkipAction;
+  onReopenOrder: ReopenAction;
 }) {
   const [orders, setOrders] = useState(initialImports);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [view, setView] = useState<ImportView>("active");
 
   const totals = useMemo(() => {
-    const totalItems = orders.reduce((sum, order) => sum + order.items.length, 0);
-    const readyItems = orders.reduce((sum, order) => sum + order.readyItems, 0);
-    const reviewItems = orders.reduce((sum, order) => sum + order.reviewItems, 0);
+    const activeOrders = orders.filter((order) => order.importStatus !== "skipped" && order.importStatus !== "approved");
+    const totalItems = activeOrders.reduce((sum, order) => sum + order.items.length, 0);
+    const readyItems = activeOrders.reduce((sum, order) => sum + order.readyItems, 0);
+    const reviewItems = activeOrders.reduce((sum, order) => sum + order.reviewItems, 0);
+    const skippedOrders = orders.filter((order) => order.importStatus === "skipped").length;
+    const approvedOrders = orders.filter((order) => order.importStatus === "approved").length;
 
-    return { totalItems, readyItems, reviewItems };
+    return { totalItems, readyItems, reviewItems, skippedOrders, approvedOrders };
   }, [orders]);
+
+  const visibleOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        if (view === "skipped") return order.importStatus === "skipped";
+        if (view === "approved") return order.importStatus === "approved";
+
+        return order.importStatus !== "skipped" && order.importStatus !== "approved";
+      }),
+    [orders, view]
+  );
 
   function updateOrder(importDbId: string, patch: Partial<NormalizedImportOrder>) {
     setOrders((current) =>
@@ -209,6 +231,53 @@ export function ImportsPreview({
     }
   }
 
+  async function skip(order: StoredOrderImport) {
+    setBusy(order.importDbId);
+    setMessage(null);
+
+    try {
+      const result = await onSkipOrder(order.importDbId);
+
+      if (result.ok) {
+        setOrders((current) => current.map((entry) => (entry.importDbId === order.importDbId ? { ...entry, importStatus: "skipped" } : entry)));
+        setMessage(`${order.orderNumber} wurde aus der aktiven Import Queue genommen.`);
+        return;
+      }
+
+      setMessage(result.error ?? "Import konnte nicht uebersprungen werden.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reopen(order: StoredOrderImport) {
+    setBusy(order.importDbId);
+    setMessage(null);
+
+    try {
+      const result = await onReopenOrder(order.importDbId);
+
+      if (result.ok) {
+        setOrders((current) =>
+          current.map((entry) => (entry.importDbId === order.importDbId ? { ...entry, importStatus: result.status ?? "pending" } : entry))
+        );
+        setView("active");
+        setMessage(`${order.orderNumber} ist wieder in der aktiven Import Queue.`);
+        return;
+      }
+
+      setMessage(result.error ?? "Import konnte nicht zurueckgeholt werden.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function viewButtonClass(nextView: ImportView) {
+    return view === nextView
+      ? "rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+      : "rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800";
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
@@ -226,6 +295,18 @@ export function ImportsPreview({
       </header>
 
       {message ? <p className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-sm text-slate-300">{message}</p> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")} className={viewButtonClass("active")}>
+          Aktiv
+        </Button>
+        <Button type="button" variant={view === "skipped" ? "default" : "outline"} onClick={() => setView("skipped")} className={viewButtonClass("skipped")}>
+          Kihagyott ({totals.skippedOrders})
+        </Button>
+        <Button type="button" variant={view === "approved" ? "default" : "outline"} onClick={() => setView("approved")} className={viewButtonClass("approved")}>
+          Auftraege ({totals.approvedOrders})
+        </Button>
+      </div>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
@@ -258,7 +339,13 @@ export function ImportsPreview({
       </section>
 
       <section className="space-y-5">
-        {orders.map((order) => (
+        {visibleOrders.length === 0 ? (
+          <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+            <CardContent className="p-6 text-sm text-slate-400">Ebben a nezetben most nincs import.</CardContent>
+          </Card>
+        ) : null}
+
+        {visibleOrders.map((order) => (
           <Card key={order.importDbId} className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
             <CardContent className="p-5">
               <div className="flex flex-col gap-4 border-b border-slate-800 pb-4 lg:flex-row lg:items-start lg:justify-between">
@@ -278,7 +365,12 @@ export function ImportsPreview({
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 lg:items-end">
-                  {order.approvedOrderNumber ? (
+                  {order.importStatus === "skipped" ? (
+                    <Button type="button" onClick={() => reopen(order)} disabled={busy === order.importDbId} className="rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+                      <RotateCcw className="h-4 w-4" />
+                      {busy === order.importDbId ? "Oeffne..." : "Visszanyitas"}
+                    </Button>
+                  ) : order.approvedOrderNumber ? (
                     <Button asChild variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
                       <Link href={`/orders/${order.approvedOrderNumber}`}>
                         <Send className="h-4 w-4" />
@@ -286,10 +378,16 @@ export function ImportsPreview({
                       </Link>
                     </Button>
                   ) : (
-                    <Button type="button" onClick={() => approve(order)} disabled={busy === order.importDbId} className="rounded-xl bg-emerald-200 text-slate-950 hover:bg-emerald-100">
-                      <Save className="h-4 w-4" />
-                      {busy === order.importDbId ? "Erstelle..." : "Als Auftrag freigeben"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <Button type="button" onClick={() => skip(order)} disabled={busy === order.importDbId} variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
+                        <XCircle className="h-4 w-4" />
+                        Kihagyas
+                      </Button>
+                      <Button type="button" onClick={() => approve(order)} disabled={busy === order.importDbId} className="rounded-xl bg-emerald-200 text-slate-950 hover:bg-emerald-100">
+                        <Save className="h-4 w-4" />
+                        {busy === order.importDbId ? "Erstelle..." : "Als Auftrag freigeben"}
+                      </Button>
+                    </div>
                   )}
                   <p className="text-xs text-slate-500">
                     {order.readyItems}/{order.items.length} ready, {order.reviewItems} review

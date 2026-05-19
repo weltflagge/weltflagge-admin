@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createOrderFromImport, type NormalizedImportOrder, upsertOrderImport } from "@/src/lib/order-imports";
+import { createOrderFromImport, reopenOrderImport, skipOrderImport, type NormalizedImportOrder, upsertOrderImport } from "@/src/lib/order-imports";
 import { fetchWeltflaggeWooOrders } from "@/src/lib/woocommerce";
 
 export async function syncWeltflaggeWooOrders() {
@@ -28,6 +28,26 @@ export async function approveImportedOrder(importId: string, input: NormalizedIm
     revalidatePath("/imports");
     revalidatePath("/orders");
     revalidatePath(`/orders/${result.orderNumber}`);
+  }
+
+  return result;
+}
+
+export async function skipImportedOrder(importId: string) {
+  const result = await skipOrderImport(importId);
+
+  if (result.ok) {
+    revalidatePath("/imports");
+  }
+
+  return result;
+}
+
+export async function reopenImportedOrder(importId: string) {
+  const result = await reopenOrderImport(importId);
+
+  if (result.ok) {
+    revalidatePath("/imports");
   }
 
   return result;

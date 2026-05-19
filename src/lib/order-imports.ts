@@ -1,4 +1,5 @@
 import { getCatalogEntry, getCatalogMaterial, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
+import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 import type { OrderSource, PrintFileStatus } from "@/src/types/order";
 import type { ManufacturerId } from "@/src/types/production";
 
@@ -25,10 +26,23 @@ export type ExternalOrderPayload = {
   orderNumber: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   amount: string;
   currency: "EUR";
   receivedAt: string;
+  paymentStatus?: "paid" | "open" | "refunded" | "cancelled";
+  billingAddress?: ExternalAddressPayload;
+  shippingAddress?: ExternalAddressPayload;
   items: ExternalOrderItemPayload[];
+};
+
+export type ExternalAddressPayload = {
+  company?: string;
+  name?: string;
+  street?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
 };
 
 export type NormalizedImportPrintFile = {
@@ -63,11 +77,24 @@ export type NormalizedImportOrder = {
   orderNumber: string;
   customerName: string;
   customerEmail: string;
+  customerPhone: string;
   amount: string;
+  currency: "EUR";
   receivedAt: string;
+  paymentStatus: "paid" | "open" | "refunded" | "cancelled";
+  billingAddress: ExternalAddressPayload;
+  shippingAddress: ExternalAddressPayload;
   items: NormalizedImportItem[];
   readyItems: number;
   reviewItems: number;
+};
+
+export type StoredOrderImport = NormalizedImportOrder & {
+  importDbId: string;
+  importStatus: "pending" | "needs_review" | "approved" | "skipped" | "error";
+  importWarnings: string[];
+  approvedOrderNumber?: string;
+  lastSyncedAt: string;
 };
 
 function textIncludes(haystack: string, needles: string[]) {
@@ -75,7 +102,13 @@ function textIncludes(haystack: string, needles: string[]) {
 }
 
 function normalizeText(value: string) {
-  return value.toLowerCase().replaceAll("ß", "ss").replaceAll("²", "2");
+  return value
+    .toLowerCase()
+    .replaceAll("ü", "ue")
+    .replaceAll("ä", "ae")
+    .replaceAll("ö", "oe")
+    .replaceAll("ß", "ss")
+    .replaceAll("²", "2");
 }
 
 function getAttribute(payload: ExternalOrderItemPayload, names: string[]) {
@@ -271,12 +304,288 @@ export function normalizeExternalOrder(payload: ExternalOrderPayload): Normalize
     orderNumber: payload.orderNumber,
     customerName: payload.customerName,
     customerEmail: payload.customerEmail,
+    customerPhone: payload.customerPhone ?? "",
     amount: `${payload.amount} ${payload.currency}`,
+    currency: payload.currency,
     receivedAt: payload.receivedAt,
+    paymentStatus: payload.paymentStatus ?? "open",
+    billingAddress: payload.billingAddress ?? {},
+    shippingAddress: payload.shippingAddress ?? payload.billingAddress ?? {},
     items,
     readyItems: items.filter((item) => item.confidence === "high").length,
     reviewItems: items.filter((item) => item.confidence === "needs_review").length,
   };
+}
+
+const dbSourceMap = {
+  "woocommerce-weltflagge": "WOOCOMMERCE_WELTFLAGGE",
+  "woocommerce-partner": "WOOCOMMERCE_PARTNER",
+  ebay: "EBAY",
+} as const;
+
+const importStatusMap: Record<string, StoredOrderImport["importStatus"]> = {
+  PENDING: "pending",
+  NEEDS_REVIEW: "needs_review",
+  APPROVED: "approved",
+  SKIPPED: "skipped",
+  ERROR: "error",
+};
+
+const manufacturerDbCodeByUiId = {
+  opinion: "OPINION",
+  logo_pl: "LOGO_PL",
+  mph_maciej: "MPH_MACIEJ",
+  wmd: "WMD",
+} as const;
+
+function parseAmountCents(value: string) {
+  const normalized = value.replace("EUR", "").replace(/\s/g, "").replace(".", "").replace(",", ".");
+  const amount = Number(normalized);
+
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : 0;
+}
+
+function cleanAddress(address: ExternalAddressPayload | undefined, fallbackName: string) {
+  return {
+    company: address?.company?.trim() || null,
+    name: address?.name?.trim() || fallbackName,
+    street: address?.street?.trim() || null,
+    postalCode: address?.postalCode?.trim() || null,
+    city: address?.city?.trim() || null,
+    country: address?.country?.trim() || null,
+  };
+}
+
+function importWarnings(order: NormalizedImportOrder) {
+  return order.items.flatMap((item) => item.warnings.map((warning) => `${item.title}: ${warning}`));
+}
+
+export async function upsertOrderImport(payload: ExternalOrderPayload) {
+  if (!hasDatabaseUrl()) {
+    throw new Error("DATABASE_URL is not configured yet.");
+  }
+
+  const prisma = getPrisma();
+  const normalized = normalizeExternalOrder(payload);
+  const warnings = importWarnings(normalized);
+  const source = dbSourceMap[payload.source];
+  const existing = await prisma.orderImport.findUnique({
+    where: {
+      source_externalId: {
+        source,
+        externalId: payload.id,
+      },
+    },
+    select: { status: true },
+  });
+
+  if (existing?.status === "APPROVED") {
+    return;
+  }
+
+  await prisma.orderImport.upsert({
+    where: {
+      source_externalId: {
+        source,
+        externalId: payload.id,
+      },
+    },
+    update: {
+      orderNumber: payload.orderNumber,
+      status: warnings.length ? "NEEDS_REVIEW" : "PENDING",
+      customerName: payload.customerName,
+      customerEmail: payload.customerEmail || null,
+      amountCents: parseAmountCents(payload.amount),
+      currency: payload.currency,
+      receivedAt: new Date(payload.receivedAt),
+      rawPayload: payload,
+      normalizedPayload: normalized,
+      warnings,
+      lastSyncedAt: new Date(),
+    },
+    create: {
+      source,
+      externalId: payload.id,
+      orderNumber: payload.orderNumber,
+      status: warnings.length ? "NEEDS_REVIEW" : "PENDING",
+      customerName: payload.customerName,
+      customerEmail: payload.customerEmail || null,
+      amountCents: parseAmountCents(payload.amount),
+      currency: payload.currency,
+      receivedAt: new Date(payload.receivedAt),
+      rawPayload: payload,
+      normalizedPayload: normalized,
+      warnings,
+    },
+  });
+}
+
+export async function getStoredOrderImports(): Promise<StoredOrderImport[] | null> {
+  if (!hasDatabaseUrl()) {
+    return null;
+  }
+
+  const prisma = getPrisma();
+  const imports = await prisma.orderImport.findMany({
+    include: { approvedOrder: { select: { orderNumber: true } } },
+    orderBy: [{ status: "asc" }, { receivedAt: "desc" }],
+  });
+
+  return imports.map((entry) => ({
+    ...(entry.normalizedPayload as NormalizedImportOrder),
+    importDbId: entry.id,
+    importStatus: importStatusMap[entry.status] ?? "pending",
+    importWarnings: Array.isArray(entry.warnings) ? entry.warnings.map(String) : [],
+    approvedOrderNumber: entry.approvedOrder?.orderNumber,
+    lastSyncedAt: entry.lastSyncedAt.toISOString(),
+  }));
+}
+
+export async function createOrderFromImport(importId: string, input: NormalizedImportOrder) {
+  if (!hasDatabaseUrl()) {
+    return { ok: false, error: "DATABASE_URL is not configured yet." };
+  }
+
+  const prisma = getPrisma();
+  const orderNumber = input.orderNumber.trim();
+  const customerName = input.customerName.trim();
+  const items = input.items.map((item, index) => ({
+    ...item,
+    lineNumber: index + 1,
+    title: item.title.trim(),
+    quantity: Number(item.quantity),
+  }));
+
+  if (!orderNumber || !customerName) {
+    return { ok: false, error: "Bestellnummer und Kunde sind erforderlich." };
+  }
+
+  if (!input.customerEmail.trim()) {
+    return { ok: false, error: "E-Mail ist erforderlich. Bitte im Import korrigieren." };
+  }
+
+  if (items.length === 0 || items.some((item) => !item.title || !Number.isInteger(item.quantity) || item.quantity < 1)) {
+    return { ok: false, error: "Bitte Positionen pruefen: Produktname und Stueckzahl sind erforderlich." };
+  }
+
+  if (items.some((item) => item.confidence !== "high" || item.warnings.length > 0 || item.manufacturer === "needs_review")) {
+    return { ok: false, error: "Bitte alle Review-Hinweise korrigieren und die Positionen auf 'Mapped' setzen." };
+  }
+
+  const existingOrder = await prisma.order.findUnique({ where: { orderNumber }, select: { id: true } });
+
+  if (existingOrder) {
+    return { ok: false, error: `Order ${orderNumber} existiert bereits.` };
+  }
+
+  const manufacturerCodes = [
+    ...new Set(items.map((item) => manufacturerDbCodeByUiId[item.manufacturer as Exclude<ManufacturerId, "needs_review">])),
+  ];
+  const manufacturers = await Promise.all(
+    manufacturerCodes.map((code) =>
+      prisma.manufacturer.upsert({
+        where: { code },
+        update: {},
+        create: {
+          code,
+          name: code === "OPINION" ? "Opinion" : code === "LOGO_PL" ? "Logo.pl" : code === "MPH_MACIEJ" ? "MPH - Maciej" : "WMD",
+          exportFormat: `${code.toLowerCase()}-xlsx`,
+        },
+      })
+    )
+  );
+  const manufacturerByCode = new Map(manufacturers.map((manufacturer) => [manufacturer.code, manufacturer]));
+  const billingAddress = cleanAddress(input.billingAddress, customerName);
+  const shippingAddress = cleanAddress(input.shippingAddress, customerName);
+  const createdOrder = await prisma.order.create({
+    data: {
+      orderNumber,
+      source: dbSourceMap[input.source],
+      externalId: input.id,
+      receivedAt: new Date(input.receivedAt),
+      customerName,
+      customerEmail: input.customerEmail.trim(),
+      customerPhone: input.customerPhone.trim() || null,
+      amountCents: parseAmountCents(input.amount),
+      currency: input.currency,
+      paymentStatus:
+        input.paymentStatus === "paid"
+          ? "PAID"
+          : input.paymentStatus === "refunded"
+            ? "REFUNDED"
+            : input.paymentStatus === "cancelled"
+              ? "CANCELLED"
+              : "OPEN",
+      status: items.some((item) => item.printFiles.some((file) => file.status === "missing")) ? "PRINT_FILES_MISSING" : "NEW",
+      priority: "NORMAL",
+      internalNotes: `Importiert aus WooCommerce Import Queue (${input.source}).`,
+      rawPayload: input,
+      billingAddress: { create: billingAddress },
+      shippingAddress: { create: shippingAddress },
+      items: {
+        create: items.map((item) => {
+          const manufacturerCode = manufacturerDbCodeByUiId[item.manufacturer as Exclude<ManufacturerId, "needs_review">];
+          const finishing = [item.shape ? `Form: ${item.shape}` : "", item.printMode === "double_sided" ? "Beidseitig bedruckt" : "Einseitig bedruckt"]
+            .filter(Boolean)
+            .join(" | ");
+
+          return {
+            lineNumber: item.lineNumber,
+            productName: item.title,
+            sku: item.sku === "-" ? null : item.sku,
+            material: item.materialLabel || null,
+            size: item.size || null,
+            quantity: item.quantity,
+            finishing: finishing || null,
+            itemType: "PRODUCTION_ITEM" as const,
+            notes: item.warnings.length ? item.warnings.join(" ") : null,
+            printFiles: {
+              create: item.printFiles.map((file) => ({
+                side: file.side === "back" ? ("BACK" as const) : file.side === "general" ? ("GENERAL" as const) : ("FRONT" as const),
+                status:
+                  file.status === "received"
+                    ? ("RECEIVED" as const)
+                    : file.status === "approved"
+                      ? ("APPROVED" as const)
+                      : file.status === "problem"
+                        ? ("PROBLEM" as const)
+                        : ("MISSING" as const),
+                fileName: file.fileName || null,
+                fileUrl: file.fileUrl || null,
+                source: input.source,
+              })),
+            },
+            productionState: {
+              create: {
+                status: "DRAFT" as const,
+                manufacturerId: manufacturerByCode.get(manufacturerCode)?.id,
+                routingReason: item.routingReason,
+              },
+            },
+          };
+        }),
+      },
+      activityLogs: {
+        create: {
+          entityType: "ORDER",
+          actor: "WooCommerce Import",
+          message: `Import aus ${input.source} freigegeben und als Auftrag erstellt.`,
+        },
+      },
+    },
+  });
+
+  await prisma.orderImport.update({
+    where: { id: importId },
+    data: {
+      status: "APPROVED",
+      normalizedPayload: input,
+      warnings: importWarnings(input),
+      approvedOrderId: createdOrder.id,
+    },
+  });
+
+  return { ok: true, orderNumber };
 }
 
 export const mockExternalOrders: ExternalOrderPayload[] = [

@@ -94,6 +94,40 @@ enum ActivityEntityType {
   PRODUCTION_BATCH
 }
 
+enum OrderImportStatus {
+  PENDING
+  NEEDS_REVIEW
+  APPROVED
+  SKIPPED
+  ERROR
+}
+
+model OrderImport {
+  id                String            @id @default(cuid())
+  source            OrderSource
+  externalId        String
+  orderNumber       String
+  status            OrderImportStatus @default(PENDING)
+  customerName      String
+  customerEmail     String?
+  amountCents       Int              @default(0)
+  currency          String           @default("EUR")
+  receivedAt        DateTime
+  rawPayload        Json
+  normalizedPayload Json
+  warnings          Json?
+  reviewNotes       String?
+  approvedOrder     Order?           @relation("OrderImportApprovedOrder", fields: [approvedOrderId], references: [id])
+  approvedOrderId   String?
+  lastSyncedAt      DateTime         @default(now())
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([source, externalId])
+  @@index([status, receivedAt])
+  @@index([orderNumber])
+}
+
 model Order {
   id                String        @id @default(cuid())
   orderNumber       String        @unique
@@ -113,6 +147,7 @@ model Order {
   trackingNumber    String?
   internalNotes     String?
   rawPayload        Json?
+  approvedImport    OrderImport[]   @relation("OrderImportApprovedOrder")
   billingAddress    Address?      @relation("OrderBillingAddress", fields: [billingAddressId], references: [id])
   billingAddressId  String?
   shippingAddress   Address?      @relation("OrderShippingAddress", fields: [shippingAddressId], references: [id])

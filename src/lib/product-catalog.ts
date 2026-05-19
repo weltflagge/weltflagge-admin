@@ -99,7 +99,7 @@ export const productCatalog: ProductCatalogEntry[] = [
     id: "bauzaunbanner",
     label: "Bauzaunbanner",
     sizeMode: "custom",
-    defaultSize: "340 x 173 cm",
+    defaultSize: "340 x 137 cm",
     materials: [
       { id: "bauzaun-pvc-banner", label: "PVC Banner", manufacturer: "opinion", allowedPrintModes: ["single_sided", "double_sided"] },
       { id: "bauzaun-mesh-banner", label: "Mesh Banner", manufacturer: "opinion", allowedPrintModes: ["single_sided"] },

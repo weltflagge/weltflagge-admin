@@ -119,6 +119,92 @@ function getAttribute(payload: ExternalOrderItemPayload, names: string[]) {
   return match?.[1] ?? "";
 }
 
+function getAttributeByKeyIncludes(payload: ExternalOrderItemPayload, names: string[]) {
+  const entries = Object.entries(payload.attributes);
+  const normalizedNames = names.map(normalizeText);
+  const match = entries.find(([key]) => normalizedNames.some((name) => normalizeText(key).includes(name)));
+
+  return match?.[1] ?? "";
+}
+
+function normalizeDecimalNumber(value: string) {
+  return value.replace(",", ".").replace(/\s/g, "");
+}
+
+function formatDimension(value: string) {
+  const number = Number(normalizeDecimalNumber(value));
+
+  if (!Number.isFinite(number)) {
+    return value.trim();
+  }
+
+  return Number.isInteger(number) ? String(number) : String(number).replace(".", ",");
+}
+
+function detectWidthHeightSize(payload: ExternalOrderItemPayload) {
+  const width = getAttributeByKeyIncludes(payload, ["breite", "width"]);
+  const height = getAttributeByKeyIncludes(payload, ["hoehe", "höhe", "height"]);
+
+  if (width && height) {
+    return `${formatDimension(width)} x ${formatDimension(height)} cm`;
+  }
+
+  const haystack = `${payload.title} ${Object.entries(payload.attributes)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" ")}`;
+  const match = haystack.match(/(?:breite|width)\s*(?:\([^)]+\))?\s*:?\s*(\d+(?:[,.]\d+)?)\s*(?:cm)?[\s\S]{0,80}?(?:h(?:ö|oe)he|height)\s*(?:\([^)]+\))?\s*:?\s*(\d+(?:[,.]\d+)?)\s*(?:cm)?/i);
+
+  return match ? `${formatDimension(match[1])} x ${formatDimension(match[2])} cm` : "";
+}
+
+function mapBeachflagHeightToSize(value: string) {
+  const normalized = normalizeDecimalNumber(value);
+  const height = Number(normalized);
+
+  if (!Number.isFinite(height)) {
+    return "";
+  }
+
+  if ([2.3, 2.6, 2.7].includes(height)) return "S";
+  if ([3, 3.1, 3.3].includes(height)) return "M";
+  if ([4, 4.1].includes(height)) return "L";
+  if ([5, 5.2].includes(height)) return "XL";
+
+  return "";
+}
+
+function detectBeachflagSize(payload: ExternalOrderItemPayload) {
+  const explicitSize = getAttribute(payload, ["size", "groesse", "größe"]);
+  const normalizedExplicitSize = normalizeText(explicitSize).toUpperCase();
+
+  if (["S", "M", "L", "XL"].includes(normalizedExplicitSize)) {
+    return normalizedExplicitSize;
+  }
+
+  const heightAttribute = getAttributeByKeyIncludes(payload, ["hoehe", "höhe", "height"]);
+  const mappedHeightAttribute = heightAttribute ? mapBeachflagHeightToSize(heightAttribute.replace(/m$/i, "")) : "";
+
+  if (mappedHeightAttribute) {
+    return mappedHeightAttribute;
+  }
+
+  const haystack = `${payload.title} ${Object.entries(payload.attributes)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" ")}`;
+  const heightMatch = haystack.match(/(?:h(?:ö|oe)he|height)\s*:?\s*(\d+(?:[,.]\d+)?)\s*m/i);
+  const mappedHeight = heightMatch ? mapBeachflagHeightToSize(heightMatch[1]) : "";
+
+  if (mappedHeight) {
+    return mappedHeight;
+  }
+
+  const tokenMatch = normalizeText(haystack)
+    .split(/\W+/)
+    .find((token) => ["s", "m", "l", "xl"].includes(token));
+
+  return tokenMatch?.toUpperCase() ?? "";
+}
+
 function detectProductType(payload: ExternalOrderItemPayload): ProductTypeId | undefined {
   const haystack = normalizeText(`${payload.title} ${payload.sku ?? ""} ${Object.values(payload.attributes).join(" ")}`);
 
@@ -126,7 +212,7 @@ function detectProductType(payload: ExternalOrderItemPayload): ProductTypeId | u
     return "beachflag";
   }
 
-  if (textIncludes(haystack, ["bauzaun"])) {
+  if (textIncludes(haystack, ["bauzaun", "bauzaeun", "bauzaene", "bauzane"])) {
     return "bauzaunbanner";
   }
 
@@ -194,22 +280,26 @@ function detectShape(productType: ProductTypeId | undefined, payload: ExternalOr
 }
 
 function detectSize(productType: ProductTypeId | undefined, shape: string, payload: ExternalOrderItemPayload) {
-  const explicitSize = getAttribute(payload, ["size", "groesse", "größe", "format", "masse", "maße"]);
-
-  if (explicitSize) {
-    return explicitSize;
-  }
-
   if (productType === "bauzaunbanner") {
     return getCatalogEntry("bauzaunbanner").defaultSize ?? "";
   }
 
-  if (productType === "beachflag" && shape) {
-    const haystack = normalizeText(`${payload.title} ${Object.values(payload.attributes).join(" ")}`);
-    const sizes = getCatalogEntry("beachflag").sizes?.[shape] ?? [];
-    const size = sizes.find((candidate) => haystack.split(/\W+/).includes(normalizeText(candidate)));
+  if (productType === "beachflag") {
+    return detectBeachflagSize(payload);
+  }
 
-    return size ?? "";
+  if (productType === "banner") {
+    const widthHeightSize = detectWidthHeightSize(payload);
+
+    if (widthHeightSize) {
+      return widthHeightSize;
+    }
+  }
+
+  const explicitSize = getAttribute(payload, ["size", "groesse", "größe", "format", "masse", "maße"]);
+
+  if (explicitSize) {
+    return explicitSize;
   }
 
   return "";

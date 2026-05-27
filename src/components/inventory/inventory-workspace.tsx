@@ -20,6 +20,7 @@ const statusLabels: Record<InventoryStatus, string> = {
 const reasonLabels: Record<string, string> = {
   MANUAL_CORRECTION: "Manual correction",
   ORDER_DEDUCTION: "Order",
+  REORDER_RECEIPT: "Wareneingang Nachbestellung",
   SUPPLIER_DELIVERY: "Supplier delivery",
   STOCK_RESET: "Stock reset",
   MANUAL_REDUCTION: "Manual reduction",

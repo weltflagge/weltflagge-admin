@@ -256,6 +256,20 @@ function inventoryStatusLabel(status: NonNullable<OrderItem["inventory"]>["statu
   return "OK";
 }
 
+function inventoryDeductionLabel(item: OrderItem) {
+  if (!item.inventory) {
+    return "";
+  }
+
+  if (item.inventory.deductionDisabled) {
+    return "Kein Lagerabzug - interne Nachbestellung. Wird Bestand nach Wareneingang erhoehen.";
+  }
+
+  return item.inventory.deductedAt
+    ? `Abgezogen: ${item.inventory.deductedQuantity ?? item.quantity} am ${item.inventory.deductedAt}`
+    : "Noch nicht abgezogen";
+}
+
 function isProductionItem(item: OrderItem) {
   return (item.itemType ?? "production_item") === "production_item";
 }
@@ -1154,9 +1168,7 @@ export function OrderDetailWorkspace({
                                   {inventoryStatusLabel(item.inventory.status)}
                                 </span>
                                 <span className="text-slate-500">
-                                  {item.inventory.deductedAt
-                                    ? `Abgezogen: ${item.inventory.deductedQuantity ?? item.quantity} am ${item.inventory.deductedAt}`
-                                    : "Noch nicht abgezogen"}
+                                  {inventoryDeductionLabel(item)}
                                 </span>
                               </div>
                             </div>

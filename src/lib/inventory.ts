@@ -5,6 +5,7 @@ export type InventoryMovementReason =
   | "INITIAL_STOCK"
   | "MANUAL_CORRECTION"
   | "ORDER_DEDUCTION"
+  | "REORDER_RECEIPT"
   | "SUPPLIER_DELIVERY"
   | "STOCK_RESET"
   | "MANUAL_REDUCTION";
@@ -456,8 +457,10 @@ export async function deductInventoryForOrderItems(input: {
     const items = await tx.orderItem.findMany({
       where: {
         inventoryDeductedAt: null,
+        inventoryDeductionDisabled: false,
+        order: { source: { not: "LAGER_REORDER" } },
         ...(input.orderItemIds ? { id: { in: input.orderItemIds } } : {}),
-        ...(input.orderNumber ? { order: { orderNumber: input.orderNumber } } : {}),
+        ...(input.orderNumber ? { order: { orderNumber: input.orderNumber, source: { not: "LAGER_REORDER" } } } : {}),
       },
       include: { order: true },
     });
@@ -614,6 +617,7 @@ export async function createInventoryReorderDraft(input: { inventoryItemId: stri
           itemType: "PRODUCTION_ITEM",
           notes: `Reorder draft for inventory item ${item.id}. Current stock ${item.currentStock}, minimum stock ${item.minimumStock}.`,
           inventoryItemId: item.id,
+          inventoryDeductionDisabled: true,
           printFiles: {
             create: {
               side: "FRONT",
@@ -656,4 +660,74 @@ export async function createInventoryReorderDraft(input: { inventoryItemId: stri
   });
 
   return order.orderNumber;
+}
+
+export async function bookInventoryReorderReceipt(input: {
+  orderItemId: string;
+  quantity: number;
+  note?: string;
+  createdBy?: string;
+}) {
+  const prisma = getPrisma();
+  const quantity = Math.trunc(input.quantity);
+
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error("Received quantity must be at least 1.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const orderItem = await tx.orderItem.findUnique({
+      where: { id: input.orderItemId },
+      include: {
+        order: true,
+        inventoryItem: true,
+      },
+    });
+
+    if (!orderItem || !orderItem.inventoryItem) {
+      throw new Error("Linked reorder item was not found.");
+    }
+
+    if (orderItem.order.source !== "LAGER_REORDER") {
+      throw new Error("Wareneingang can only be booked for Lager reorder orders.");
+    }
+
+    const previousStock = orderItem.inventoryItem.currentStock;
+    const newStock = previousStock + quantity;
+    const now = new Date();
+
+    await tx.inventoryItem.update({
+      where: { id: orderItem.inventoryItem.id },
+      data: {
+        currentStock: newStock,
+        lastStockChangeAt: now,
+      },
+    });
+
+    await tx.activityLog.create({
+      data: {
+        entityType: "ORDER_ITEM",
+        actor: input.createdBy ?? "Operator",
+        message: `Wareneingang Nachbestellung gebucht: ${quantity}x ${orderItem.inventoryItem.name}.`,
+        orderId: orderItem.orderId,
+        orderItemId: orderItem.id,
+        createdAt: now,
+      },
+    });
+
+    return tx.inventoryMovement.create({
+      data: {
+        inventoryItemId: orderItem.inventoryItem.id,
+        changeAmount: quantity,
+        previousStock,
+        newStock,
+        reason: "REORDER_RECEIPT",
+        note: input.note?.trim() || `Wareneingang Nachbestellung ${orderItem.order.orderNumber}`,
+        orderId: orderItem.orderId,
+        orderItemId: orderItem.id,
+        createdBy: input.createdBy ?? "Operator",
+        createdAt: now,
+      },
+    });
+  });
 }

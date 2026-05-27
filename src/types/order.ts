@@ -54,6 +54,7 @@ export type OrderItem = {
     status: "out_of_stock" | "low_stock" | "ok";
     deductedQuantity?: number;
     deductedAt?: string;
+    deductionDisabled?: boolean;
   };
   printFile: PrintFile;
   printFiles?: PrintFile[];

@@ -107,6 +107,7 @@ enum InventoryMovementReason {
   INITIAL_STOCK
   MANUAL_CORRECTION
   ORDER_DEDUCTION
+  REORDER_RECEIPT
   SUPPLIER_DELIVERY
   STOCK_RESET
   MANUAL_REDUCTION
@@ -206,6 +207,7 @@ model OrderItem {
   inventoryItemId String?
   inventoryDeductedQuantity Int?
   inventoryDeductedAt DateTime?
+  inventoryDeductionDisabled Boolean        @default(false)
   printFiles      PrintFile[]
   productionState OrderItemProductionState?
   batchItems      ProductionBatchItem[]

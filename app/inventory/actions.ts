@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { changeInventoryStock, createInventoryItem, createInventoryReorderDraft, updateInventoryItemSettings, upsertInventoryItems } from "@/src/lib/inventory";
+import { bookInventoryReorderReceipt, changeInventoryStock, createInventoryItem, createInventoryReorderDraft, updateInventoryItemSettings, upsertInventoryItems } from "@/src/lib/inventory";
 import { hasDatabaseUrl } from "@/src/lib/prisma";
 
 type InventoryActionResult = {
@@ -98,6 +98,23 @@ export async function createReorderDraft(input: { inventoryItemId: string; quant
     return { ok: true, orderNumber };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Reorder draft could not be created." };
+  }
+}
+
+export async function bookReorderReceipt(input: { orderItemId: string; quantity: number; note?: string }): Promise<InventoryActionResult> {
+  const databaseError = requireDatabase();
+  if (databaseError) {
+    return databaseError;
+  }
+
+  try {
+    await bookInventoryReorderReceipt({ ...input, createdBy: "Operator" });
+    revalidatePath("/inventory");
+    revalidatePath("/orders");
+    revalidatePath("/production");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Wareneingang konnte nicht gebucht werden." };
   }
 }
 

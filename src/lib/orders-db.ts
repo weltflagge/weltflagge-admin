@@ -237,6 +237,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
               status: getInventoryStatus(item.inventoryItem.currentStock),
               deductedQuantity: item.inventoryDeductedQuantity ?? undefined,
               deductedAt: item.inventoryDeductedAt ? formatTimestamp(item.inventoryDeductedAt) : undefined,
+              deductionDisabled: item.inventoryDeductionDisabled || order.source === "LAGER_REORDER",
             }
           : undefined,
         printFile: mapPrimaryPrintFile(item.printFiles),
@@ -331,6 +332,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
               status: getInventoryStatus(item.inventoryItem.currentStock),
               deductedQuantity: item.inventoryDeductedQuantity ?? undefined,
               deductedAt: item.inventoryDeductedAt ? formatTimestamp(item.inventoryDeductedAt) : undefined,
+              deductionDisabled: item.inventoryDeductionDisabled || order.source === "LAGER_REORDER",
             }
           : undefined,
         printFile: mapPrimaryPrintFile(item.printFiles),

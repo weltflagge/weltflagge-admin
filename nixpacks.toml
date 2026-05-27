@@ -3,3 +3,6 @@ NIXPACKS_NODE_VERSION = "22"
 
 [phases.setup]
 nixpkgsArchive = "ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7"
+
+[start]
+cmd = "npm run db:deploy && npm run start"

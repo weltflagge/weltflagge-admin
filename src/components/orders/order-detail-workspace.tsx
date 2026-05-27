@@ -400,9 +400,11 @@ export function OrderDetailWorkspace({
   );
   const completed = status === "Completed";
   const cancelled = status === "Cancelled";
-  const locked = completed || cancelled;
+  const persistedCompleted = order.status === "Completed";
+  const persistedCancelled = order.status === "Cancelled";
+  const locked = persistedCompleted || persistedCancelled;
   const archived = status === "Shipped" || completed || cancelled;
-  const canResetProduction = hasSentProductionItems && !cancelled;
+  const canResetProduction = hasSentProductionItems && !persistedCancelled;
 
   function addTimelineEntry(message: string) {
     setTimeline((currentTimeline) => [
@@ -606,12 +608,12 @@ export function OrderDetailWorkspace({
   }
 
   async function updateArchiveStatus(action: "ship" | "complete" | "reopen" | "cancel") {
-    if (completed && action !== "reopen") {
+    if (persistedCompleted && action !== "reopen") {
       setSaveMessage("Abgeschlossene Auftraege sind gesperrt. Bitte Produktion zuruecksetzen, wenn noch etwas geaendert werden muss.");
       return;
     }
 
-    if (cancelled && action !== "reopen") {
+    if (persistedCancelled && action !== "reopen") {
       setSaveMessage("Stornierte Auftraege sind gesperrt. Bitte zuerst wieder oeffnen.");
       return;
     }
@@ -932,7 +934,7 @@ export function OrderDetailWorkspace({
 
       {locked ? (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
-          {completed
+          {persistedCompleted
             ? "Dieser Auftrag ist abgeschlossen und gesperrt. Aenderungen sind erst nach Produktion zuruecksetzen moeglich."
             : "Dieser Auftrag ist storniert und gesperrt. Zum Bearbeiten muss er zuerst wieder geoeffnet werden."}
         </div>
@@ -1467,7 +1469,7 @@ export function OrderDetailWorkspace({
                   {savingOrderAction === "cancel" ? "Speichern..." : "Bestellung stornieren"}
                 </Button>
               ) : null}
-              {(status === "Shipped" || cancelled) ? (
+              {(status === "Shipped" || persistedCancelled) ? (
                 <Button
                   type="button"
                   variant="outline"

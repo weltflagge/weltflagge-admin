@@ -1,5 +1,6 @@
 import type { Order, OrderItemProduction, OrderItemProductionStatus, OrderSource, OrderStatus, PrintFileStatus } from "@/src/types/order";
 import { mockOrders } from "./mock-orders";
+import { getInventoryStatus } from "./inventory";
 import { getPrisma, hasDatabaseUrl } from "./prisma";
 
 const sourceMap: Record<string, OrderSource> = {
@@ -180,6 +181,7 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
       items: {
         include: {
           printFiles: true,
+          inventoryItem: true,
           productionState: {
             include: {
               manufacturer: true,
@@ -224,6 +226,18 @@ export async function getOrderByNumberFromDb(orderNumber: string): Promise<Order
         size: item.size ?? "-",
         quantity: item.quantity,
         itemType: itemTypeMap[item.itemType] ?? "production_item",
+        inventory: item.inventoryItem
+          ? {
+              itemId: item.inventoryItem.id,
+              sku: item.inventoryItem.sku,
+              name: item.inventoryItem.name,
+              currentStock: item.inventoryItem.currentStock,
+              minimumStock: item.inventoryItem.minimumStock,
+              status: getInventoryStatus(item.inventoryItem.currentStock),
+              deductedQuantity: item.inventoryDeductedQuantity ?? undefined,
+              deductedAt: item.inventoryDeductedAt ? formatTimestamp(item.inventoryDeductedAt) : undefined,
+            }
+          : undefined,
         printFile: mapPrimaryPrintFile(item.printFiles),
         printFiles: item.printFiles.map(mapPrintFile),
         production: {
@@ -264,6 +278,7 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
       items: {
         include: {
           printFiles: true,
+          inventoryItem: true,
           productionState: {
             include: {
               manufacturer: true,
@@ -305,6 +320,18 @@ export async function getOrdersFromDb(): Promise<Order[] | null> {
         size: item.size ?? "-",
         quantity: item.quantity,
         itemType: itemTypeMap[item.itemType] ?? "production_item",
+        inventory: item.inventoryItem
+          ? {
+              itemId: item.inventoryItem.id,
+              sku: item.inventoryItem.sku,
+              name: item.inventoryItem.name,
+              currentStock: item.inventoryItem.currentStock,
+              minimumStock: item.inventoryItem.minimumStock,
+              status: getInventoryStatus(item.inventoryItem.currentStock),
+              deductedQuantity: item.inventoryDeductedQuantity ?? undefined,
+              deductedAt: item.inventoryDeductedAt ? formatTimestamp(item.inventoryDeductedAt) : undefined,
+            }
+          : undefined,
         printFile: mapPrimaryPrintFile(item.printFiles),
         printFiles: item.printFiles.map(mapPrintFile),
         production: {

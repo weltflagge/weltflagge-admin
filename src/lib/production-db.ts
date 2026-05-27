@@ -1,6 +1,7 @@
 import { productionRows } from "@/src/lib/mock-production";
 import type { ManufacturerId, ProductionBatchStatus, ProductionRow } from "@/src/types/production";
 import type { OrderItemProductionStatus, PrintFileStatus } from "@/src/types/order";
+import { getInventoryStatus } from "./inventory";
 import { getPrisma, hasDatabaseUrl } from "./prisma";
 
 type ActiveManufacturer = Exclude<ManufacturerId, "needs_review">;
@@ -103,6 +104,7 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
     },
     include: {
       order: true,
+      inventoryItem: true,
       printFiles: true,
       productionState: {
         include: {
@@ -146,6 +148,16 @@ export async function getProductionRowsFromDb(): Promise<ProductionRow[] | null>
       })),
       productionStatus: mapProductionStatus(item.productionState?.status, manufacturer),
       paymentStatus: item.order.paymentStatus === "PAID" ? "Paid" : "Open",
+      inventory: item.inventoryItem
+        ? {
+            itemId: item.inventoryItem.id,
+            name: item.inventoryItem.name,
+            currentStock: item.inventoryItem.currentStock,
+            minimumStock: item.inventoryItem.minimumStock,
+            status: getInventoryStatus(item.inventoryItem.currentStock),
+            deductedAt: item.inventoryDeductedAt ? formatDate(item.inventoryDeductedAt) : undefined,
+          }
+        : undefined,
       sentAt: formatDate(item.productionState?.sentAt ?? null),
       batchId: batch?.batchNumber ?? undefined,
       deadline: formatDate(item.order.deadlineAt),

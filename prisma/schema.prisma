@@ -102,6 +102,14 @@ enum OrderImportStatus {
   ERROR
 }
 
+enum InventoryMovementReason {
+  MANUAL_CORRECTION
+  ORDER_DEDUCTION
+  SUPPLIER_DELIVERY
+  STOCK_RESET
+  MANUAL_REDUCTION
+}
+
 model OrderImport {
   id                String            @id @default(cuid())
   source            OrderSource
@@ -154,6 +162,7 @@ model Order {
   shippingAddressId String?
   items             OrderItem[]
   activityLogs      ActivityLog[] @relation("OrderActivityLogs")
+  inventoryMovements InventoryMovement[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -191,16 +200,63 @@ model OrderItem {
   unitAmountCents Int?
   itemType        OrderItemType             @default(PRODUCTION_ITEM)
   notes           String?
+  inventoryItem   InventoryItem?            @relation(fields: [inventoryItemId], references: [id])
+  inventoryItemId String?
+  inventoryDeductedQuantity Int?
+  inventoryDeductedAt DateTime?
   printFiles      PrintFile[]
   productionState OrderItemProductionState?
   batchItems      ProductionBatchItem[]
   activityLogs    ActivityLog[]             @relation("OrderItemActivityLogs")
+  inventoryMovements InventoryMovement[]
   createdAt       DateTime                  @default(now())
   updatedAt       DateTime                  @updatedAt
 
   @@unique([orderId, lineNumber])
   @@index([sku])
   @@index([orderId, sku])
+  @@index([inventoryItemId])
+}
+
+model InventoryItem {
+  id                String              @id @default(cuid())
+  sku               String              @unique
+  name              String
+  category          String              @default("Beachflag")
+  form              String
+  size              String
+  currentStock      Int                 @default(0)
+  minimumStock      Int                 @default(3)
+  reorderNote       String?
+  lastStockChangeAt DateTime?
+  orderItems        OrderItem[]
+  movements         InventoryMovement[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([category, form, size])
+  @@index([currentStock, minimumStock])
+}
+
+model InventoryMovement {
+  id              String                  @id @default(cuid())
+  inventoryItem   InventoryItem           @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  changeAmount    Int
+  previousStock   Int
+  newStock        Int
+  reason          InventoryMovementReason
+  note            String?
+  order           Order?                  @relation(fields: [orderId], references: [id])
+  orderId         String?
+  orderItem       OrderItem?              @relation(fields: [orderItemId], references: [id])
+  orderItemId     String?
+  createdBy       String?
+  createdAt       DateTime                @default(now())
+
+  @@index([inventoryItemId, createdAt])
+  @@index([orderId])
+  @@index([orderItemId])
 }
 
 model PrintFile {

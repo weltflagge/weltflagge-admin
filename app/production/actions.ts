@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { ManufacturerId } from "@/src/types/production";
+import { deductInventoryForOrderItems } from "@/src/lib/inventory";
 import { getBatchNumber } from "@/src/lib/production-db";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
@@ -240,8 +241,11 @@ export async function sendProductionBatch(input: {
     });
   });
 
+  await deductInventoryForOrderItems({ orderItemIds: rowIds, trigger: "sent_to_manufacturer" });
+
   revalidatePath("/production");
   revalidatePath("/orders");
+  revalidatePath("/inventory");
 
   return { ok: true, batchId: batchNumber };
 }

@@ -45,6 +45,16 @@ export type OrderItem = {
   size: string;
   quantity: number;
   itemType?: OrderItemType;
+  inventory?: {
+    itemId: string;
+    sku: string;
+    name: string;
+    currentStock: number;
+    minimumStock: number;
+    status: "out_of_stock" | "low_stock" | "ok";
+    deductedQuantity?: number;
+    deductedAt?: string;
+  };
   printFile: PrintFile;
   printFiles?: PrintFile[];
   production: OrderItemProduction;

@@ -192,12 +192,50 @@ const orders = [
   },
 ];
 
+const inventoryItems = [
+  { sku: "BF-QUILL-S", name: "Beachflag Quill S System", form: "Quill", size: "S", currentStock: 6, minimumStock: 3, reorderNote: "Standard Nachbestellung pruefen." },
+  { sku: "BF-QUILL-M", name: "Beachflag Quill M System", form: "Quill", size: "M", currentStock: 3, minimumStock: 3, reorderNote: "M ist schnell drehend." },
+  { sku: "BF-QUILL-L", name: "Beachflag Quill L System", form: "Quill", size: "L", currentStock: 7, minimumStock: 3, reorderNote: null },
+  { sku: "BF-FEATHER-S", name: "Beachflag Feather S System", form: "Feather", size: "S", currentStock: 2, minimumStock: 3, reorderNote: "Lieferant anfragen." },
+  { sku: "BF-FEATHER-M", name: "Beachflag Feather M System", form: "Feather", size: "M", currentStock: 9, minimumStock: 3, reorderNote: null },
+  { sku: "BF-SQUARE-M", name: "Beachflag Square M System", form: "Square", size: "M", currentStock: 0, minimumStock: 2, reorderNote: "Dringend nachbestellen." },
+];
+
 async function main() {
   for (const manufacturer of manufacturers) {
     await prisma.manufacturer.upsert({
       where: { code: manufacturer.code },
       update: manufacturer,
       create: manufacturer,
+    });
+  }
+
+  for (const item of inventoryItems) {
+    await prisma.inventoryItem.upsert({
+      where: { sku: item.sku },
+      update: {
+        name: item.name,
+        category: "Beachflag",
+        form: item.form,
+        size: item.size,
+        minimumStock: item.minimumStock,
+        reorderNote: item.reorderNote,
+      },
+      create: {
+        ...item,
+        category: "Beachflag",
+        lastStockChangeAt: new Date(),
+        movements: {
+          create: {
+            changeAmount: item.currentStock,
+            previousStock: 0,
+            newStock: item.currentStock,
+            reason: "STOCK_RESET",
+            note: "Initial seed stock",
+            createdBy: "Seed",
+          },
+        },
+      },
     });
   }
 

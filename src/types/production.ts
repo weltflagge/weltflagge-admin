@@ -25,6 +25,14 @@ export type ProductionRow = {
   printFile: PrintFile;
   printFiles?: PrintFile[];
   paymentStatus?: Order["paymentStatus"];
+  inventory?: {
+    itemId: string;
+    name: string;
+    currentStock: number;
+    minimumStock: number;
+    status: "out_of_stock" | "low_stock" | "ok";
+    deductedAt?: string;
+  };
   productionStatus: OrderItemProductionStatus;
   sentAt?: string;
   batchId?: string;

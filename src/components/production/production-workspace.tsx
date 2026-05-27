@@ -56,6 +56,16 @@ function manufacturerLabel(manufacturer: ManufacturerId) {
   return manufacturer === "needs_review" ? "Nicht zugeordnet" : manufacturerLabels[manufacturer];
 }
 
+function inventoryWarning(row: ProductionRow) {
+  if (!row.inventory || row.inventory.status === "ok") {
+    return null;
+  }
+
+  return row.inventory.status === "out_of_stock"
+    ? `Lager leer: ${row.inventory.name}`
+    : `Lager niedrig: ${row.inventory.currentStock} Stk.`;
+}
+
 function groupByManufacturer(rows: ProductionRow[]) {
   const groups = new Map<ActiveManufacturer, ProductionRow[]>();
 
@@ -476,7 +486,10 @@ export function ProductionWorkspace({
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-slate-300">{row.customer}</td>
-                    <td className="px-4 py-3 text-white">{row.productName}</td>
+                    <td className="px-4 py-3 text-white">
+                      <div>{row.productName}</div>
+                      {inventoryWarning(row) ? <div className="mt-1 text-xs text-amber-200">{inventoryWarning(row)}</div> : null}
+                    </td>
                     <td className="px-4 py-3 text-slate-300">{row.size}</td>
                     <td className="px-4 py-3 text-slate-300">{row.material}</td>
                     <td className="px-4 py-3 text-slate-300">{row.finishing}</td>
@@ -589,6 +602,7 @@ export function ProductionWorkspace({
                 <DetailRow label="Stück" value={detailRow.quantity} />
                 <DetailRow label="Druckdatei" value={primaryPrintFileLabel(detailRow)} />
                 <DetailRow label="Druckdatenstatus" value={detailRow.printFile.status} />
+                {inventoryWarning(detailRow) ? <DetailRow label="Lager" value={inventoryWarning(detailRow)} /> : null}
               </div>
 
               <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/70 p-4">

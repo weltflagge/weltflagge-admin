@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { ActivityLogEntry, Order, OrderItemType, OrderPriority, OrderStatus, PrintFileStatus } from "@/src/types/order";
+import { deductInventoryForOrderItems } from "@/src/lib/inventory";
 import { getPrisma, hasDatabaseUrl } from "@/src/lib/prisma";
 
 type PrintFileUpdateInput = {
@@ -289,8 +290,14 @@ export async function updateOrderWorkflowStatus(input: OrderStatusUpdateInput): 
     });
   });
 
+  if (input.status === "Ready to ship") {
+    await deductInventoryForOrderItems({ orderNumber: input.orderNumber, trigger: "ready_to_ship" });
+  }
+
   revalidatePath(`/orders/${input.orderNumber}`);
   revalidatePath("/orders");
+  revalidatePath("/inventory");
+  revalidatePath("/production");
 
   return {
     ok: true,
@@ -462,8 +469,14 @@ export async function updateOrderEditableFields(input: EditableOrderUpdateInput)
     });
   });
 
+  if (input.status === "Ready to ship") {
+    await deductInventoryForOrderItems({ orderNumber: input.orderNumber, trigger: "ready_to_ship" });
+  }
+
   revalidatePath(`/orders/${input.orderNumber}`);
   revalidatePath("/orders");
+  revalidatePath("/inventory");
+  revalidatePath("/production");
 
   return {
     ok: true,

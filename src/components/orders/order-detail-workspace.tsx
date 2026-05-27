@@ -232,6 +232,30 @@ function productionStatusClass(status: OrderItem["production"]["status"]) {
   return "border-amber-500/25 bg-amber-500/10 text-amber-200";
 }
 
+function inventoryStatusClass(status: NonNullable<OrderItem["inventory"]>["status"]) {
+  if (status === "out_of_stock") {
+    return "border-red-500/25 bg-red-500/10 text-red-100";
+  }
+
+  if (status === "low_stock") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-100";
+  }
+
+  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-100";
+}
+
+function inventoryStatusLabel(status: NonNullable<OrderItem["inventory"]>["status"]) {
+  if (status === "out_of_stock") {
+    return "Elfogyott";
+  }
+
+  if (status === "low_stock") {
+    return "Keves";
+  }
+
+  return "OK";
+}
+
 function isProductionItem(item: OrderItem) {
   return (item.itemType ?? "production_item") === "production_item";
 }
@@ -1025,6 +1049,18 @@ export function OrderDetailWorkspace({
                                   ))}
                                 </div>
                               </div>
+                              {item.inventory ? (
+                                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 md:col-span-2">
+                                  <p className="text-xs uppercase tracking-wide text-slate-500">Lager</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-200">
+                                    <span>{item.inventory.name}</span>
+                                    <span>{item.inventory.currentStock} Stk.</span>
+                                    <span className={`rounded-full border px-2 py-0.5 text-xs ${inventoryStatusClass(item.inventory.status)}`}>
+                                      {inventoryStatusLabel(item.inventory.status)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         );
@@ -1106,6 +1142,23 @@ export function OrderDetailWorkspace({
                               ))}
                             </div>
                           </div>
+                          {item.inventory ? (
+                            <div className="lg:col-span-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Lager</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-200">
+                                <span>{item.inventory.name}</span>
+                                <span>Bestand {item.inventory.currentStock}</span>
+                                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${inventoryStatusClass(item.inventory.status)}`}>
+                                  {inventoryStatusLabel(item.inventory.status)}
+                                </span>
+                                <span className="text-slate-500">
+                                  {item.inventory.deductedAt
+                                    ? `Abgezogen: ${item.inventory.deductedQuantity ?? item.quantity} am ${item.inventory.deductedAt}`
+                                    : "Noch nicht abgezogen"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
                         </>
                       ) : (
                         <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">

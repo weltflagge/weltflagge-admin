@@ -8,6 +8,7 @@ import {
   Database,
   Factory,
   Inbox,
+  Package,
   PackageSearch,
   Settings,
   Sparkles,
@@ -27,6 +28,7 @@ const sections = [
     label: "Operations",
     items: [
       { label: "Production", href: "/production", icon: Factory },
+      { label: "Lager", href: "/inventory", icon: Package },
       { label: "Imports", href: "/imports", icon: PackageSearch },
     ],
   },

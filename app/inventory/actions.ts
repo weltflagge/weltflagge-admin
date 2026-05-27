@@ -44,6 +44,9 @@ export async function addInventoryItem(input: {
   currentStock: number;
   minimumStock: number;
   reorderNote: string;
+  defaultPrintFileId?: string;
+  defaultPrintFileName?: string;
+  defaultPrintFileUrl?: string;
 }): Promise<InventoryActionResult> {
   const databaseError = requireDatabase();
   if (databaseError) {
@@ -63,6 +66,9 @@ export async function saveInventoryItemSettings(input: {
   inventoryItemId: string;
   minimumStock: number;
   reorderNote: string;
+  defaultPrintFileId?: string;
+  defaultPrintFileName?: string;
+  defaultPrintFileUrl?: string;
 }): Promise<InventoryActionResult> {
   const databaseError = requireDatabase();
   if (databaseError) {
@@ -78,7 +84,7 @@ export async function saveInventoryItemSettings(input: {
   }
 }
 
-export async function createReorderDraft(input: { inventoryItemId: string }): Promise<InventoryActionResult & { orderNumber?: string }> {
+export async function createReorderDraft(input: { inventoryItemId: string; quantity: number; note?: string }): Promise<InventoryActionResult & { orderNumber?: string }> {
   const databaseError = requireDatabase();
   if (databaseError) {
     return databaseError;
@@ -107,7 +113,7 @@ export async function importInventoryCsv(input: { csvText: string }): Promise<In
     .filter(Boolean)
     .map((line) => line.split(line.includes("\t") ? "\t" : ",").map((value) => value.trim()))
     .filter((columns) => columns.length >= 5)
-    .map(([sku, name, form, size, currentStock, category, reorderNote]) => ({
+    .map(([sku, name, form, size, currentStock, category, reorderNote, defaultPrintFileName, defaultPrintFileUrl, defaultPrintFileId]) => ({
       sku,
       name,
       form,
@@ -115,6 +121,9 @@ export async function importInventoryCsv(input: { csvText: string }): Promise<In
       currentStock: Number.parseInt(currentStock, 10) || 0,
       category: category || "Beachflag",
       reorderNote: reorderNote || "",
+      defaultPrintFileName: defaultPrintFileName || "",
+      defaultPrintFileUrl: defaultPrintFileUrl || "",
+      defaultPrintFileId: defaultPrintFileId || "",
     }));
 
   if (!rows.length) {

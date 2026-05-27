@@ -230,6 +230,9 @@ model InventoryItem {
   currentStock      Int                 @default(0)
   minimumStock      Int                 @default(3)
   reorderNote       String?
+  defaultPrintFileId String?
+  defaultPrintFileName String?
+  defaultPrintFileUrl String?
   lastStockChangeAt DateTime?
   orderItems        OrderItem[]
   movements         InventoryMovement[]

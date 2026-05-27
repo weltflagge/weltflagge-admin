@@ -51,9 +51,9 @@ export function InventoryWorkspace({
 }: {
   dashboard: InventoryDashboard;
   onAdjustStock?: (input: { inventoryItemId: string; mode: "add" | "reduce" | "correct"; quantity: number; note: string }) => InventoryActionResult;
-  onAddItem?: (input: { sku: string; name: string; category: string; form: string; size: string; currentStock: number; minimumStock: number; reorderNote: string }) => InventoryActionResult;
-  onSaveSettings?: (input: { inventoryItemId: string; minimumStock: number; reorderNote: string }) => InventoryActionResult;
-  onCreateReorderDraft?: (input: { inventoryItemId: string }) => Promise<{ ok: boolean; error?: string; orderNumber?: string }>;
+  onAddItem?: (input: { sku: string; name: string; category: string; form: string; size: string; currentStock: number; minimumStock: number; reorderNote: string; defaultPrintFileId?: string; defaultPrintFileName?: string; defaultPrintFileUrl?: string }) => InventoryActionResult;
+  onSaveSettings?: (input: { inventoryItemId: string; minimumStock: number; reorderNote: string; defaultPrintFileId?: string; defaultPrintFileName?: string; defaultPrintFileUrl?: string }) => InventoryActionResult;
+  onCreateReorderDraft?: (input: { inventoryItemId: string; quantity: number; note?: string }) => Promise<{ ok: boolean; error?: string; orderNumber?: string }>;
   onImportCsv?: (input: { csvText: string }) => InventoryActionResult;
 }) {
   const router = useRouter();
@@ -76,7 +76,11 @@ export function InventoryWorkspace({
     currentStock: "0",
     minimumStock: "3",
     reorderNote: "",
+    defaultPrintFileId: "",
+    defaultPrintFileName: "",
+    defaultPrintFileUrl: "",
   });
+  const [reorderDraft, setReorderDraft] = useState<{ item: InventoryItemView; quantity: string; note: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [reorderingItemId, setReorderingItemId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -103,6 +107,12 @@ export function InventoryWorkspace({
     setQuantity(action === "correct" ? String(item.currentStock) : "1");
     setMinimumStock(String(item.minimumStock));
     setReorderNote(item.reorderNote);
+    setNewItemDraft((currentDraft) => ({
+      ...currentDraft,
+      defaultPrintFileId: item.defaultPrintFileId,
+      defaultPrintFileName: item.defaultPrintFileName,
+      defaultPrintFileUrl: item.defaultPrintFileUrl,
+    }));
     setNote("");
     setMessage(null);
   }
@@ -146,6 +156,9 @@ export function InventoryWorkspace({
         inventoryItemId: activeItem.id,
         minimumStock: Number.parseInt(minimumStock, 10) || 0,
         reorderNote,
+        defaultPrintFileId: newItemDraft.defaultPrintFileId,
+        defaultPrintFileName: newItemDraft.defaultPrintFileName,
+        defaultPrintFileUrl: newItemDraft.defaultPrintFileUrl,
       });
       setMessage(result.ok ? "Einstellungen gespeichert." : result.error ?? "Einstellungen konnten nicht gespeichert werden.");
       if (result.ok) {
@@ -176,6 +189,9 @@ export function InventoryWorkspace({
         currentStock: Number.parseInt(newItemDraft.currentStock, 10) || 0,
         minimumStock: Number.parseInt(newItemDraft.minimumStock, 10) || 0,
         reorderNote: newItemDraft.reorderNote,
+        defaultPrintFileId: newItemDraft.defaultPrintFileId,
+        defaultPrintFileName: newItemDraft.defaultPrintFileName,
+        defaultPrintFileUrl: newItemDraft.defaultPrintFileUrl,
       });
       setMessage(result.ok ? "Lagerartikel erstellt." : result.error ?? "Lagerartikel konnte nicht erstellt werden.");
       if (result.ok) {
@@ -189,6 +205,9 @@ export function InventoryWorkspace({
           currentStock: "0",
           minimumStock: "3",
           reorderNote: "",
+          defaultPrintFileId: "",
+          defaultPrintFileName: "",
+          defaultPrintFileUrl: "",
         });
       }
     } catch {
@@ -199,17 +218,32 @@ export function InventoryWorkspace({
   }
 
   async function createDraftForReorder(item: InventoryItemView) {
+    const suggestedQuantity = Math.max(item.minimumStock * 2 - item.currentStock, item.minimumStock, 1);
+    setReorderDraft({ item, quantity: String(suggestedQuantity), note: "" });
+    setMessage(null);
+  }
+
+  async function submitReorderDraft() {
+    if (!reorderDraft) {
+      return;
+    }
+
     if (!onCreateReorderDraft) {
       return;
     }
 
-    setReorderingItemId(item.id);
+    setReorderingItemId(reorderDraft.item.id);
     setMessage(null);
 
     try {
-      const result = await onCreateReorderDraft({ inventoryItemId: item.id });
+      const result = await onCreateReorderDraft({
+        inventoryItemId: reorderDraft.item.id,
+        quantity: Number.parseInt(reorderDraft.quantity, 10) || 0,
+        note: reorderDraft.note,
+      });
 
       if (result.ok && result.orderNumber) {
+        setReorderDraft(null);
         router.push(`/orders/${result.orderNumber}`);
         return;
       }
@@ -436,6 +470,16 @@ export function InventoryWorkspace({
           onSubmitImport={submitImport}
         />
       ) : null}
+
+      {reorderDraft ? (
+        <ReorderDialog
+          draft={reorderDraft}
+          saving={reorderingItemId === reorderDraft.item.id}
+          onClose={() => setReorderDraft(null)}
+          onChange={setReorderDraft}
+          onSubmit={submitReorderDraft}
+        />
+      ) : null}
     </div>
   );
 }
@@ -460,6 +504,84 @@ function DialogField({ label, children }: { label: string; children: React.React
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+
+function ReorderDialog({
+  draft,
+  saving,
+  onClose,
+  onChange,
+  onSubmit,
+}: {
+  draft: { item: InventoryItemView; quantity: string; note: string };
+  saving: boolean;
+  onClose: () => void;
+  onChange: (draft: { item: InventoryItemView; quantity: string; note: string }) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Nachbestellung erstellen"
+        className="w-full max-w-xl rounded-xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/50"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 p-5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-cyan-200">{draft.item.sku}</p>
+            <h2 className="mt-1 truncate text-xl font-semibold text-white">Nachbestellung erstellen</h2>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+            <p className="font-medium text-white">{draft.item.name}</p>
+            <p className="mt-1 text-sm text-slate-400">
+              Bestand {draft.item.currentStock} / Mindestbestand {draft.item.minimumStock}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {draft.item.defaultPrintFileName || draft.item.defaultPrintFileUrl
+                ? `Standard-Druckdatei: ${draft.item.defaultPrintFileName || draft.item.defaultPrintFileUrl}`
+                : "Keine Standard-Druckdatei hinterlegt. Der Auftrag wartet dann auf Druckdaten."}
+            </p>
+          </div>
+
+          <DialogField label="Wie viele Stueck moechten Sie nachbestellen?">
+            <input
+              type="number"
+              min={1}
+              value={draft.quantity}
+              onChange={(event) => onChange({ ...draft, quantity: event.target.value })}
+              className={inputClass}
+            />
+          </DialogField>
+          <DialogField label="Optionale Notiz">
+            <textarea
+              value={draft.note}
+              onChange={(event) => onChange({ ...draft, note: event.target.value })}
+              rows={4}
+              className={inputClass}
+            />
+          </DialogField>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-slate-800 p-5 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onClose} className="rounded-lg border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
+            Abbrechen
+          </Button>
+          <Button type="button" onClick={onSubmit} disabled={saving} className="rounded-lg bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+            <PackagePlus className="h-4 w-4" />
+            {saving ? "Erstelle..." : "Nachbestellung erstellen"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -503,6 +625,9 @@ function InventoryDialog({
     currentStock: string;
     minimumStock: string;
     reorderNote: string;
+    defaultPrintFileId: string;
+    defaultPrintFileName: string;
+    defaultPrintFileUrl: string;
   };
   saving: boolean;
   onClose: () => void;
@@ -520,6 +645,9 @@ function InventoryDialog({
     currentStock: string;
     minimumStock: string;
     reorderNote: string;
+    defaultPrintFileId: string;
+    defaultPrintFileName: string;
+    defaultPrintFileUrl: string;
   }) => void;
   onSubmitStock: () => void;
   onSubmitSettings: () => void;
@@ -583,6 +711,17 @@ function InventoryDialog({
                 <span>Reorder note</span>
                 <textarea value={reorderNote} onChange={(event) => onReorderNoteChange(event.target.value)} rows={4} className={inputClass} />
               </label>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <DialogField label="Default print file ID">
+                  <input value={newItemDraft.defaultPrintFileId} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileId: event.target.value })} className={inputClass} />
+                </DialogField>
+                <DialogField label="Default print file name">
+                  <input value={newItemDraft.defaultPrintFileName} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileName: event.target.value })} className={inputClass} />
+                </DialogField>
+                <DialogField label="Default print file URL/path">
+                  <input value={newItemDraft.defaultPrintFileUrl} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileUrl: event.target.value })} className={inputClass} />
+                </DialogField>
+              </div>
             </div>
           ) : action === "import" ? (
             <div className="space-y-3">
@@ -590,7 +729,7 @@ function InventoryDialog({
                 value={csvText}
                 onChange={(event) => onCsvTextChange(event.target.value)}
                 rows={10}
-                placeholder="SKU, name, form, size, current stock, category, reorder note"
+                placeholder="SKU, name, form, size, current stock, category, reorder note, default print file name, default print file URL/path, default print file ID"
                 className={inputClass}
               />
               <p className="text-xs text-slate-500">Existing SKUs are updated without changing stock; new SKUs create an initial stock reset history entry.</p>
@@ -620,6 +759,15 @@ function InventoryDialog({
               </DialogField>
               <DialogField label="Reorder note">
                 <textarea value={newItemDraft.reorderNote} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, reorderNote: event.target.value })} rows={4} className={inputClass} />
+              </DialogField>
+              <DialogField label="Default print file ID">
+                <input value={newItemDraft.defaultPrintFileId} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileId: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Default print file name">
+                <input value={newItemDraft.defaultPrintFileName} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileName: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Default print file URL/path">
+                <input value={newItemDraft.defaultPrintFileUrl} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, defaultPrintFileUrl: event.target.value })} className={inputClass} />
               </DialogField>
             </div>
           ) : (

@@ -20,6 +20,9 @@ export type InventoryItemView = {
   minimumStock: number;
   status: InventoryStatus;
   reorderNote: string;
+  defaultPrintFileId: string;
+  defaultPrintFileName: string;
+  defaultPrintFileUrl: string;
   lastStockChangeAt: string;
 };
 
@@ -109,6 +112,9 @@ function mapInventoryItem(item: {
   currentStock: number;
   minimumStock: number;
   reorderNote: string | null;
+  defaultPrintFileId: string | null;
+  defaultPrintFileName: string | null;
+  defaultPrintFileUrl: string | null;
   lastStockChangeAt: Date | null;
 }): InventoryItemView {
   return {
@@ -122,6 +128,9 @@ function mapInventoryItem(item: {
     minimumStock: item.minimumStock,
     status: getInventoryStatus(item.currentStock),
     reorderNote: item.reorderNote ?? "",
+    defaultPrintFileId: item.defaultPrintFileId ?? "",
+    defaultPrintFileName: item.defaultPrintFileName ?? "",
+    defaultPrintFileUrl: item.defaultPrintFileUrl ?? "",
     lastStockChangeAt: formatTimestamp(item.lastStockChangeAt),
   };
 }
@@ -283,6 +292,9 @@ export async function createInventoryItem(input: {
   currentStock: number;
   minimumStock: number;
   reorderNote: string;
+  defaultPrintFileId?: string;
+  defaultPrintFileName?: string;
+  defaultPrintFileUrl?: string;
 }) {
   const prisma = getPrisma();
   const sku = input.sku.trim();
@@ -307,6 +319,9 @@ export async function createInventoryItem(input: {
       currentStock,
       minimumStock,
       reorderNote: input.reorderNote.trim() || null,
+      defaultPrintFileId: input.defaultPrintFileId?.trim() || null,
+      defaultPrintFileName: input.defaultPrintFileName?.trim() || null,
+      defaultPrintFileUrl: input.defaultPrintFileUrl?.trim() || null,
       lastStockChangeAt: now,
       movements: {
         create: {
@@ -327,6 +342,9 @@ export async function updateInventoryItemSettings(input: {
   inventoryItemId: string;
   minimumStock: number;
   reorderNote: string;
+  defaultPrintFileId?: string;
+  defaultPrintFileName?: string;
+  defaultPrintFileUrl?: string;
 }) {
   const prisma = getPrisma();
   return prisma.inventoryItem.update({
@@ -334,6 +352,9 @@ export async function updateInventoryItemSettings(input: {
     data: {
       minimumStock: Math.max(0, Math.trunc(input.minimumStock)),
       reorderNote: input.reorderNote.trim() || null,
+      defaultPrintFileId: input.defaultPrintFileId?.trim() || null,
+      defaultPrintFileName: input.defaultPrintFileName?.trim() || null,
+      defaultPrintFileUrl: input.defaultPrintFileUrl?.trim() || null,
     },
   });
 }
@@ -346,6 +367,9 @@ export async function upsertInventoryItems(rows: Array<{
   currentStock: number;
   category?: string;
   reorderNote?: string;
+  defaultPrintFileId?: string;
+  defaultPrintFileName?: string;
+  defaultPrintFileUrl?: string;
 }>) {
   const prisma = getPrisma();
   const now = new Date();
@@ -365,6 +389,9 @@ export async function upsertInventoryItems(rows: Array<{
         form: row.form.trim(),
         size: row.size.trim().toUpperCase(),
         reorderNote: row.reorderNote?.trim() || null,
+        defaultPrintFileId: row.defaultPrintFileId?.trim() || null,
+        defaultPrintFileName: row.defaultPrintFileName?.trim() || null,
+        defaultPrintFileUrl: row.defaultPrintFileUrl?.trim() || null,
       };
 
       if (!existingItem) {
@@ -379,8 +406,8 @@ export async function upsertInventoryItems(rows: Array<{
                 changeAmount: nextStock,
                 previousStock: 0,
                 newStock: nextStock,
-            reason: "INITIAL_STOCK",
-            note: "Initial inventory import",
+                reason: "INITIAL_STOCK",
+                note: "Initial inventory import",
                 createdBy: "Import",
                 createdAt: now,
               },
@@ -499,7 +526,15 @@ export async function deductInventoryForOrderItems(input: {
   });
 }
 
-export async function createInventoryReorderDraft(input: { inventoryItemId: string }) {
+function formatReorderDate(date: Date) {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+export async function createInventoryReorderDraft(input: { inventoryItemId: string; quantity: number; note?: string }) {
   const prisma = getPrisma();
   const item = await prisma.inventoryItem.findUnique({
     where: { id: input.inventoryItemId },
@@ -509,39 +544,62 @@ export async function createInventoryReorderDraft(input: { inventoryItemId: stri
     throw new Error("Inventory item was not found.");
   }
 
+  const quantity = Math.trunc(input.quantity);
+
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error("Quantity must be at least 1.");
+  }
+
   const now = new Date();
   const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const orderNumber = `LR-${datePart}-${item.sku.replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase()}`;
-  const suggestedQuantity = Math.max(item.minimumStock * 2 - item.currentStock, item.minimumStock, 1);
+  const timePart = `${now.toISOString().slice(11, 19).replace(/:/g, "")}${String(now.getMilliseconds()).padStart(3, "0")}`;
+  const orderNumber = `LR-${datePart}-${timePart}-${item.sku.replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase()}`;
+  const hasDefaultPrintFile = Boolean(item.defaultPrintFileName || item.defaultPrintFileUrl || item.defaultPrintFileId);
+  const reorderEntry = `Nachbestellt am ${formatReorderDate(now)}: ${quantity} Stueck`;
+  const nextReorderNote = [item.reorderNote?.trim(), reorderEntry].filter(Boolean).join("\n");
+  const noteParts = [
+    `Lager Nachbestellung fuer ${item.name} (${item.sku}).`,
+    `Aktueller Bestand: ${item.currentStock}, Mindestbestand: ${item.minimumStock}.`,
+    `Bestellte Menge: ${quantity}.`,
+    input.note?.trim() ? `Notiz: ${input.note.trim()}` : "",
+  ].filter(Boolean);
 
-  const order = await prisma.order.upsert({
-    where: { orderNumber },
-    update: {
-      internalNotes: `Lager Nachbestellung fuer ${item.name} (${item.sku}). Aktueller Bestand: ${item.currentStock}, Mindestbestand: ${item.minimumStock}.`,
-    },
+  const manufacturer = await prisma.manufacturer.upsert({
+    where: { code: "MPH_MACIEJ" },
+    update: {},
     create: {
+      code: "MPH_MACIEJ",
+      name: "MPH - Maciej",
+      specialty: "Beachflags",
+      exportFormat: "mph-maciej-xlsx",
+    },
+  });
+
+  const order = await prisma.$transaction(async (tx) => {
+    const createdOrder = await tx.order.create({
+      data: {
       orderNumber,
       source: "LAGER_REORDER",
-      externalId: `lager-reorder-${item.id}-${datePart}`,
+      externalId: `lager-reorder-${item.id}-${datePart}-${timePart}`,
       receivedAt: now,
-      customerName: "Lager Nachbestellung",
+      customerName: "Interne Nachbestellung",
       customerEmail: "lager@weltflagge.de",
       amountCents: 0,
-      paymentStatus: "OPEN",
-      status: "NEW",
+      paymentStatus: "PAID",
+      status: hasDefaultPrintFile ? "PRODUCTION_READY" : "PRINT_FILES_MISSING",
       priority: item.currentStock <= 0 ? "HIGH" : "NORMAL",
-      internalNotes: `Lager Nachbestellung fuer ${item.name} (${item.sku}). Aktueller Bestand: ${item.currentStock}, Mindestbestand: ${item.minimumStock}. Vorgeschlagene Menge: ${suggestedQuantity}.`,
+      internalNotes: noteParts.join(" "),
       billingAddress: {
         create: {
           company: "Weltflagge Lager",
-          name: "Lager Nachbestellung",
+          name: "Interne Nachbestellung",
           country: "Germany",
         },
       },
       shippingAddress: {
         create: {
           company: "Weltflagge Lager",
-          name: "Lager Nachbestellung",
+          name: "Interne Nachbestellung",
           country: "Germany",
         },
       },
@@ -552,20 +610,49 @@ export async function createInventoryReorderDraft(input: { inventoryItemId: stri
           sku: item.sku,
           material: `Beachflag ${item.form}`,
           size: item.size,
-          quantity: suggestedQuantity,
-          itemType: "ACCESSORY_ITEM",
+          quantity,
+          itemType: "PRODUCTION_ITEM",
           notes: `Reorder draft for inventory item ${item.id}. Current stock ${item.currentStock}, minimum stock ${item.minimumStock}.`,
           inventoryItemId: item.id,
+          printFiles: {
+            create: {
+              side: "FRONT",
+              fileName: item.defaultPrintFileName || item.defaultPrintFileId || null,
+              fileUrl: item.defaultPrintFileUrl || null,
+              source: "lager-default",
+              status: hasDefaultPrintFile ? "APPROVED" : "MISSING",
+              checkedAt: hasDefaultPrintFile ? now : null,
+              checkedBy: hasDefaultPrintFile ? "Lager" : null,
+              notes: item.defaultPrintFileId ? `Default print file ID: ${item.defaultPrintFileId}` : null,
+            },
+          },
+          productionState: {
+            create: {
+              manufacturerId: manufacturer.id,
+              status: "DRAFT",
+              routingReason: hasDefaultPrintFile
+                ? "Lager Nachbestellung mit freigegebener Standard-Druckdatei."
+                : "Lager Nachbestellung wartet auf Standard-Druckdatei.",
+            },
+          },
         },
       },
       activityLogs: {
         create: {
           entityType: "ORDER",
           actor: "Operator",
-          message: `Lager Nachbestellung fuer ${item.name} erstellt.`,
+          message: `Lager Nachbestellung fuer ${item.name} erstellt (${quantity} Stueck).`,
         },
       },
-    },
+      },
+    });
+
+    await tx.inventoryItem.update({
+      where: { id: item.id },
+      data: { reorderNote: nextReorderNote },
+    });
+
+    return createdOrder;
   });
 
   return order.orderNumber;

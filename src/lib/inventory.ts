@@ -2,6 +2,7 @@ import { getPrisma, hasDatabaseUrl } from "./prisma";
 
 export type InventoryStatus = "out_of_stock" | "low_stock" | "ok";
 export type InventoryMovementReason =
+  | "INITIAL_STOCK"
   | "MANUAL_CORRECTION"
   | "ORDER_DEDUCTION"
   | "SUPPLIER_DELIVERY"
@@ -273,6 +274,55 @@ export async function changeInventoryStock(input: {
   });
 }
 
+export async function createInventoryItem(input: {
+  sku: string;
+  name: string;
+  category: string;
+  form: string;
+  size: string;
+  currentStock: number;
+  minimumStock: number;
+  reorderNote: string;
+}) {
+  const prisma = getPrisma();
+  const sku = input.sku.trim();
+  const name = input.name.trim();
+  const form = input.form.trim();
+  const size = input.size.trim().toUpperCase();
+  const currentStock = Math.trunc(input.currentStock);
+  const minimumStock = Math.max(0, Math.trunc(input.minimumStock));
+  const now = new Date();
+
+  if (!sku || !name || !form || !size) {
+    throw new Error("SKU, name, form and size are required.");
+  }
+
+  return prisma.inventoryItem.create({
+    data: {
+      sku,
+      name,
+      category: input.category.trim() || "Beachflag",
+      form,
+      size,
+      currentStock,
+      minimumStock,
+      reorderNote: input.reorderNote.trim() || null,
+      lastStockChangeAt: now,
+      movements: {
+        create: {
+          changeAmount: currentStock,
+          previousStock: 0,
+          newStock: currentStock,
+          reason: "INITIAL_STOCK",
+          note: "Initial stock",
+          createdBy: "Operator",
+          createdAt: now,
+        },
+      },
+    },
+  });
+}
+
 export async function updateInventoryItemSettings(input: {
   inventoryItemId: string;
   minimumStock: number;
@@ -329,8 +379,8 @@ export async function upsertInventoryItems(rows: Array<{
                 changeAmount: nextStock,
                 previousStock: 0,
                 newStock: nextStock,
-                reason: "STOCK_RESET",
-                note: "Initial inventory import",
+            reason: "INITIAL_STOCK",
+            note: "Initial inventory import",
                 createdBy: "Import",
                 createdAt: now,
               },
@@ -447,4 +497,76 @@ export async function deductInventoryForOrderItems(input: {
 
     return deductedCount;
   });
+}
+
+export async function createInventoryReorderDraft(input: { inventoryItemId: string }) {
+  const prisma = getPrisma();
+  const item = await prisma.inventoryItem.findUnique({
+    where: { id: input.inventoryItemId },
+  });
+
+  if (!item) {
+    throw new Error("Inventory item was not found.");
+  }
+
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const orderNumber = `LR-${datePart}-${item.sku.replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase()}`;
+  const suggestedQuantity = Math.max(item.minimumStock * 2 - item.currentStock, item.minimumStock, 1);
+
+  const order = await prisma.order.upsert({
+    where: { orderNumber },
+    update: {
+      internalNotes: `Lager Nachbestellung fuer ${item.name} (${item.sku}). Aktueller Bestand: ${item.currentStock}, Mindestbestand: ${item.minimumStock}.`,
+    },
+    create: {
+      orderNumber,
+      source: "LAGER_REORDER",
+      externalId: `lager-reorder-${item.id}-${datePart}`,
+      receivedAt: now,
+      customerName: "Lager Nachbestellung",
+      customerEmail: "lager@weltflagge.de",
+      amountCents: 0,
+      paymentStatus: "OPEN",
+      status: "NEW",
+      priority: item.currentStock <= 0 ? "HIGH" : "NORMAL",
+      internalNotes: `Lager Nachbestellung fuer ${item.name} (${item.sku}). Aktueller Bestand: ${item.currentStock}, Mindestbestand: ${item.minimumStock}. Vorgeschlagene Menge: ${suggestedQuantity}.`,
+      billingAddress: {
+        create: {
+          company: "Weltflagge Lager",
+          name: "Lager Nachbestellung",
+          country: "Germany",
+        },
+      },
+      shippingAddress: {
+        create: {
+          company: "Weltflagge Lager",
+          name: "Lager Nachbestellung",
+          country: "Germany",
+        },
+      },
+      items: {
+        create: {
+          lineNumber: 1,
+          productName: item.name,
+          sku: item.sku,
+          material: `Beachflag ${item.form}`,
+          size: item.size,
+          quantity: suggestedQuantity,
+          itemType: "ACCESSORY_ITEM",
+          notes: `Reorder draft for inventory item ${item.id}. Current stock ${item.currentStock}, minimum stock ${item.minimumStock}.`,
+          inventoryItemId: item.id,
+        },
+      },
+      activityLogs: {
+        create: {
+          entityType: "ORDER",
+          actor: "Operator",
+          message: `Lager Nachbestellung fuer ${item.name} erstellt.`,
+        },
+      },
+    },
+  });
+
+  return order.orderNumber;
 }

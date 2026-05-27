@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { changeInventoryStock, updateInventoryItemSettings, upsertInventoryItems } from "@/src/lib/inventory";
+import { changeInventoryStock, createInventoryItem, createInventoryReorderDraft, updateInventoryItemSettings, upsertInventoryItems } from "@/src/lib/inventory";
 import { hasDatabaseUrl } from "@/src/lib/prisma";
 
 type InventoryActionResult = {
@@ -35,6 +35,30 @@ export async function adjustInventoryStock(input: {
   }
 }
 
+export async function addInventoryItem(input: {
+  sku: string;
+  name: string;
+  category: string;
+  form: string;
+  size: string;
+  currentStock: number;
+  minimumStock: number;
+  reorderNote: string;
+}): Promise<InventoryActionResult> {
+  const databaseError = requireDatabase();
+  if (databaseError) {
+    return databaseError;
+  }
+
+  try {
+    await createInventoryItem(input);
+    revalidatePath("/inventory");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Inventory item could not be created." };
+  }
+}
+
 export async function saveInventoryItemSettings(input: {
   inventoryItemId: string;
   minimumStock: number;
@@ -51,6 +75,23 @@ export async function saveInventoryItemSettings(input: {
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Inventory item could not be saved." };
+  }
+}
+
+export async function createReorderDraft(input: { inventoryItemId: string }): Promise<InventoryActionResult & { orderNumber?: string }> {
+  const databaseError = requireDatabase();
+  if (databaseError) {
+    return databaseError;
+  }
+
+  try {
+    const orderNumber = await createInventoryReorderDraft(input);
+    revalidatePath("/inventory");
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${orderNumber}`);
+    return { ok: true, orderNumber };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Reorder draft could not be created." };
   }
 }
 

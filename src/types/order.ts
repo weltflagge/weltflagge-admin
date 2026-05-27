@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 
-export type OrderSource = "woocommerce-weltflagge" | "woocommerce-partner" | "ebay" | "email" | "angebot-pdf";
+export type OrderSource = "woocommerce-weltflagge" | "woocommerce-partner" | "ebay" | "email" | "angebot-pdf" | "lager_reorder";
 
 export type OrderStatus =
   | "New"

@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 import { InventoryWorkspace } from "@/src/components/inventory/inventory-workspace";
 import { getInventoryDashboard } from "@/src/lib/inventory";
-import { adjustInventoryStock, importInventoryCsv, saveInventoryItemSettings } from "./actions";
+import { addInventoryItem, adjustInventoryStock, createReorderDraft, importInventoryCsv, saveInventoryItemSettings } from "./actions";
 
 export default async function InventoryPage() {
   await connection();
@@ -23,7 +23,9 @@ export default async function InventoryPage() {
       <InventoryWorkspace
         dashboard={dashboard}
         onAdjustStock={adjustInventoryStock}
+        onAddItem={addInventoryItem}
         onSaveSettings={saveInventoryItemSettings}
+        onCreateReorderDraft={createReorderDraft}
         onImportCsv={importInventoryCsv}
       />
     </div>

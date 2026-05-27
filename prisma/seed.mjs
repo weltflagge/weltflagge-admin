@@ -230,7 +230,7 @@ async function main() {
             changeAmount: item.currentStock,
             previousStock: 0,
             newStock: item.currentStock,
-            reason: "STOCK_RESET",
+            reason: "INITIAL_STOCK",
             note: "Initial seed stock",
             createdBy: "Seed",
           },

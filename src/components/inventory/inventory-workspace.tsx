@@ -1,7 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, History, Minus, PackagePlus, Pencil, Plus, RotateCcw, Save, Upload, X } from "lucide-react";
+import { AlertTriangle, ClipboardList, FilePlus2, History, Minus, PackagePlus, Pencil, Plus, RotateCcw, Save, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { InventoryDashboard, InventoryItemView, InventoryMovementView, InventoryStatus } from "@/src/lib/inventory";
@@ -22,6 +23,7 @@ const reasonLabels: Record<string, string> = {
   SUPPLIER_DELIVERY: "Supplier delivery",
   STOCK_RESET: "Stock reset",
   MANUAL_REDUCTION: "Manual reduction",
+  INITIAL_STOCK: "Initial stock",
 };
 
 const inputClass =
@@ -42,25 +44,41 @@ function statusClass(status: InventoryStatus) {
 export function InventoryWorkspace({
   dashboard,
   onAdjustStock,
+  onAddItem,
   onSaveSettings,
+  onCreateReorderDraft,
   onImportCsv,
 }: {
   dashboard: InventoryDashboard;
   onAdjustStock?: (input: { inventoryItemId: string; mode: "add" | "reduce" | "correct"; quantity: number; note: string }) => InventoryActionResult;
+  onAddItem?: (input: { sku: string; name: string; category: string; form: string; size: string; currentStock: number; minimumStock: number; reorderNote: string }) => InventoryActionResult;
   onSaveSettings?: (input: { inventoryItemId: string; minimumStock: number; reorderNote: string }) => InventoryActionResult;
+  onCreateReorderDraft?: (input: { inventoryItemId: string }) => Promise<{ ok: boolean; error?: string; orderNumber?: string }>;
   onImportCsv?: (input: { csvText: string }) => InventoryActionResult;
 }) {
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [formFilter, setFormFilter] = useState("all");
   const [sizeFilter, setSizeFilter] = useState("all");
   const [activeItem, setActiveItem] = useState<InventoryItemView | null>(null);
-  const [activeAction, setActiveAction] = useState<"add" | "reduce" | "correct" | "settings" | "history" | "import" | null>(null);
+  const [activeAction, setActiveAction] = useState<"add" | "reduce" | "correct" | "settings" | "history" | "import" | "create" | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [minimumStock, setMinimumStock] = useState("3");
   const [reorderNote, setReorderNote] = useState("");
   const [note, setNote] = useState("");
   const [csvText, setCsvText] = useState("");
+  const [newItemDraft, setNewItemDraft] = useState({
+    sku: "",
+    name: "",
+    category: "Beachflag",
+    form: "",
+    size: "",
+    currentStock: "0",
+    minimumStock: "3",
+    reorderNote: "",
+  });
   const [saving, setSaving] = useState(false);
+  const [reorderingItemId, setReorderingItemId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const visibleItems = useMemo(
@@ -90,7 +108,7 @@ export function InventoryWorkspace({
   }
 
   async function submitStockAction() {
-    if (!activeItem || !activeAction || !onAdjustStock || activeAction === "settings" || activeAction === "history" || activeAction === "import") {
+    if (!activeItem || !activeAction || !onAdjustStock || activeAction === "settings" || activeAction === "history" || activeAction === "import" || activeAction === "create") {
       return;
     }
 
@@ -140,6 +158,70 @@ export function InventoryWorkspace({
     }
   }
 
+  async function submitNewItem() {
+    if (!onAddItem) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const result = await onAddItem({
+        sku: newItemDraft.sku,
+        name: newItemDraft.name,
+        category: newItemDraft.category,
+        form: newItemDraft.form,
+        size: newItemDraft.size,
+        currentStock: Number.parseInt(newItemDraft.currentStock, 10) || 0,
+        minimumStock: Number.parseInt(newItemDraft.minimumStock, 10) || 0,
+        reorderNote: newItemDraft.reorderNote,
+      });
+      setMessage(result.ok ? "Lagerartikel erstellt." : result.error ?? "Lagerartikel konnte nicht erstellt werden.");
+      if (result.ok) {
+        setActiveAction(null);
+        setNewItemDraft({
+          sku: "",
+          name: "",
+          category: "Beachflag",
+          form: "",
+          size: "",
+          currentStock: "0",
+          minimumStock: "3",
+          reorderNote: "",
+        });
+      }
+    } catch {
+      setMessage("Lagerartikel konnte nicht erstellt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createDraftForReorder(item: InventoryItemView) {
+    if (!onCreateReorderDraft) {
+      return;
+    }
+
+    setReorderingItemId(item.id);
+    setMessage(null);
+
+    try {
+      const result = await onCreateReorderDraft({ inventoryItemId: item.id });
+
+      if (result.ok && result.orderNumber) {
+        router.push(`/orders/${result.orderNumber}`);
+        return;
+      }
+
+      setMessage(result.error ?? "Nachbestellung konnte nicht erstellt werden.");
+    } catch {
+      setMessage("Nachbestellung konnte nicht erstellt werden.");
+    } finally {
+      setReorderingItemId(null);
+    }
+  }
+
   async function submitImport() {
     if (!onImportCsv) {
       return;
@@ -171,19 +253,33 @@ export function InventoryWorkspace({
               <p className="text-sm font-medium text-cyan-200">{dashboard.items.length} Beachflag Lagerartikel</p>
               <h2 className="mt-1 text-xl font-semibold text-white">{dashboard.reorderItems.length} Artikel muessen nachbestellt werden</h2>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setActiveItem(null);
-                setActiveAction("import");
-                setMessage(null);
-              }}
-              className="rounded-lg border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
-            >
-              <Upload className="h-4 w-4" />
-              CSV import
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  setActiveItem(null);
+                  setActiveAction("create");
+                  setMessage(null);
+                }}
+                className="rounded-lg bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+              >
+                <FilePlus2 className="h-4 w-4" />
+                Lagerartikel hinzufuegen
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setActiveItem(null);
+                  setActiveAction("import");
+                  setMessage(null);
+                }}
+                className="rounded-lg border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+              >
+                <Upload className="h-4 w-4" />
+                CSV import
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -193,11 +289,26 @@ export function InventoryWorkspace({
               <AlertTriangle className="h-5 w-5" />
               <p className="font-semibold">Nachbestellen</p>
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-3">
               {dashboard.reorderItems.slice(0, 4).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate text-amber-50">{item.form} {item.size}</span>
-                  <span className="text-amber-200">{item.currentStock} / min {item.minimumStock}</span>
+                <div key={item.id} className="rounded-lg border border-amber-400/20 bg-slate-950/30 p-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-amber-50">{item.name}</p>
+                      <p className="mt-1 text-xs text-amber-100/75">{item.sku}</p>
+                    </div>
+                    <span className="shrink-0 text-amber-200">{item.currentStock} / min {item.minimumStock}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => createDraftForReorder(item)}
+                    disabled={reorderingItemId === item.id}
+                    className="mt-3 h-9 w-full rounded-lg border-amber-400/25 bg-amber-400/10 text-amber-50 hover:bg-amber-400/15"
+                  >
+                    <PackagePlus className="h-4 w-4" />
+                    {reorderingItemId === item.id ? "Erstelle..." : "Nachbestellung erstellen"}
+                  </Button>
                 </div>
               ))}
               {!dashboard.reorderItems.length ? <p className="text-sm text-amber-100/80">Alles im gruenen Bereich.</p> : null}
@@ -280,11 +391,11 @@ export function InventoryWorkspace({
                     <td className="px-4 py-3 text-slate-400">{item.lastStockChangeAt}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5">
-                        <IconButton label="Add stock" onClick={() => openAction(item, "add")} icon={<Plus className="h-4 w-4" />} />
-                        <IconButton label="Reduce stock" onClick={() => openAction(item, "reduce")} icon={<Minus className="h-4 w-4" />} />
-                        <IconButton label="Correct stock" onClick={() => openAction(item, "correct")} icon={<RotateCcw className="h-4 w-4" />} />
-                        <IconButton label="Edit reorder settings" onClick={() => openAction(item, "settings")} icon={<Pencil className="h-4 w-4" />} />
-                        <IconButton label="View history" onClick={() => openAction(item, "history")} icon={<History className="h-4 w-4" />} />
+                        <IconButton label="Bestand erhoehen" onClick={() => openAction(item, "add")} icon={<Plus className="h-4 w-4" />} />
+                        <IconButton label="Bestand reduzieren" onClick={() => openAction(item, "reduce")} icon={<Minus className="h-4 w-4" />} />
+                        <IconButton label="Bestand korrigieren" onClick={() => openAction(item, "correct")} icon={<RotateCcw className="h-4 w-4" />} />
+                        <IconButton label="Bearbeiten" onClick={() => openAction(item, "settings")} icon={<Pencil className="h-4 w-4" />} />
+                        <IconButton label="Historie anzeigen" onClick={() => openAction(item, "history")} icon={<History className="h-4 w-4" />} />
                       </div>
                     </td>
                   </tr>
@@ -310,6 +421,7 @@ export function InventoryWorkspace({
           reorderNote={reorderNote}
           note={note}
           csvText={csvText}
+          newItemDraft={newItemDraft}
           saving={saving}
           onClose={() => setActiveAction(null)}
           onQuantityChange={setQuantity}
@@ -317,8 +429,10 @@ export function InventoryWorkspace({
           onReorderNoteChange={setReorderNote}
           onNoteChange={setNote}
           onCsvTextChange={setCsvText}
+          onNewItemDraftChange={setNewItemDraft}
           onSubmitStock={submitStockAction}
           onSubmitSettings={submitSettings}
+          onSubmitNewItem={submitNewItem}
           onSubmitImport={submitImport}
         />
       ) : null}
@@ -340,6 +454,15 @@ function IconButton({ label, icon, onClick }: { label: string; icon: React.React
   );
 }
 
+function DialogField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="space-y-2 text-sm text-slate-400">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function InventoryDialog({
   action,
   item,
@@ -349,6 +472,7 @@ function InventoryDialog({
   reorderNote,
   note,
   csvText,
+  newItemDraft,
   saving,
   onClose,
   onQuantityChange,
@@ -356,11 +480,13 @@ function InventoryDialog({
   onReorderNoteChange,
   onNoteChange,
   onCsvTextChange,
+  onNewItemDraftChange,
   onSubmitStock,
   onSubmitSettings,
+  onSubmitNewItem,
   onSubmitImport,
 }: {
-  action: "add" | "reduce" | "correct" | "settings" | "history" | "import";
+  action: "add" | "reduce" | "correct" | "settings" | "history" | "import" | "create";
   item: InventoryItemView | null;
   movements: InventoryMovementView[];
   quantity: string;
@@ -368,6 +494,16 @@ function InventoryDialog({
   reorderNote: string;
   note: string;
   csvText: string;
+  newItemDraft: {
+    sku: string;
+    name: string;
+    category: string;
+    form: string;
+    size: string;
+    currentStock: string;
+    minimumStock: string;
+    reorderNote: string;
+  };
   saving: boolean;
   onClose: () => void;
   onQuantityChange: (value: string) => void;
@@ -375,12 +511,31 @@ function InventoryDialog({
   onReorderNoteChange: (value: string) => void;
   onNoteChange: (value: string) => void;
   onCsvTextChange: (value: string) => void;
+  onNewItemDraftChange: (value: {
+    sku: string;
+    name: string;
+    category: string;
+    form: string;
+    size: string;
+    currentStock: string;
+    minimumStock: string;
+    reorderNote: string;
+  }) => void;
   onSubmitStock: () => void;
   onSubmitSettings: () => void;
+  onSubmitNewItem: () => void;
   onSubmitImport: () => void;
 }) {
   const title =
-    action === "import" ? "CSV import" : action === "history" ? "Lagerverlauf" : action === "settings" ? "Meldebestand bearbeiten" : "Bestand aendern";
+    action === "create"
+      ? "Lagerartikel hinzufuegen"
+      : action === "import"
+        ? "CSV import"
+        : action === "history"
+          ? "Lagerverlauf"
+          : action === "settings"
+            ? "Meldebestand bearbeiten"
+            : "Bestand aendern";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
@@ -440,6 +595,33 @@ function InventoryDialog({
               />
               <p className="text-xs text-slate-500">Existing SKUs are updated without changing stock; new SKUs create an initial stock reset history entry.</p>
             </div>
+          ) : action === "create" ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <DialogField label="SKU / Art. Num.">
+                <input value={newItemDraft.sku} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, sku: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Name">
+                <input value={newItemDraft.name} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, name: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Category">
+                <input value={newItemDraft.category} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, category: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Form">
+                <input value={newItemDraft.form} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, form: event.target.value })} placeholder="Quill, Feather, Square" className={inputClass} />
+              </DialogField>
+              <DialogField label="Size">
+                <input value={newItemDraft.size} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, size: event.target.value })} placeholder="S, M, L, XL" className={inputClass} />
+              </DialogField>
+              <DialogField label="Current stock">
+                <input type="number" min={0} value={newItemDraft.currentStock} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, currentStock: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Minimum stock">
+                <input type="number" min={0} value={newItemDraft.minimumStock} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, minimumStock: event.target.value })} className={inputClass} />
+              </DialogField>
+              <DialogField label="Reorder note">
+                <textarea value={newItemDraft.reorderNote} onChange={(event) => onNewItemDraftChange({ ...newItemDraft, reorderNote: event.target.value })} rows={4} className={inputClass} />
+              </DialogField>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
               <label className="space-y-2 text-sm text-slate-400">
@@ -466,11 +648,11 @@ function InventoryDialog({
             {action !== "history" ? (
               <Button
                 type="button"
-                onClick={action === "settings" ? onSubmitSettings : action === "import" ? onSubmitImport : onSubmitStock}
+                onClick={action === "settings" ? onSubmitSettings : action === "import" ? onSubmitImport : action === "create" ? onSubmitNewItem : onSubmitStock}
                 disabled={saving}
                 className="rounded-lg bg-cyan-200 text-slate-950 hover:bg-cyan-100"
               >
-                {action === "import" ? <Upload className="h-4 w-4" /> : action === "settings" ? <Save className="h-4 w-4" /> : <PackagePlus className="h-4 w-4" />}
+                {action === "import" ? <Upload className="h-4 w-4" /> : action === "settings" ? <Save className="h-4 w-4" /> : action === "create" ? <FilePlus2 className="h-4 w-4" /> : <PackagePlus className="h-4 w-4" />}
                 {saving ? "Speichern..." : "Speichern"}
               </Button>
             ) : null}

@@ -18,6 +18,7 @@ export const sourceLabels: Record<OrderSource, string> = {
   ebay: "eBay",
   email: "E-Mail",
   "angebot-pdf": "Angebot PDF",
+  lager_reorder: "Lager Nachbestellung",
 };
 
 export const priorityLabels: Record<OrderPriority, string> = {

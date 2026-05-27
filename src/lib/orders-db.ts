@@ -9,6 +9,7 @@ const sourceMap: Record<string, OrderSource> = {
   EBAY: "ebay",
   EMAIL: "email",
   ANGEBOT_PDF: "angebot-pdf",
+  LAGER_REORDER: "lager_reorder",
 };
 
 const statusMap: Record<string, OrderStatus> = {

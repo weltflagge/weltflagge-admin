@@ -97,6 +97,13 @@ export type StoredOrderImport = NormalizedImportOrder & {
   lastSyncedAt: string;
 };
 
+export type OrderImportUpsertResult = {
+  result: "imported" | "updated" | "skipped";
+  externalId: string;
+  orderNumber: string;
+  message: string;
+};
+
 function textIncludes(haystack: string, needles: string[]) {
   return needles.some((needle) => haystack.includes(needle));
 }
@@ -407,11 +414,13 @@ export function normalizeExternalOrder(payload: ExternalOrderPayload): Normalize
   };
 }
 
-const dbSourceMap = {
+export const dbSourceMap = {
   "woocommerce-weltflagge": "WOOCOMMERCE_WELTFLAGGE",
   "woocommerce-partner": "WOOCOMMERCE_PARTNER",
   ebay: "EBAY",
 } as const;
+
+export type DbOrderSource = (typeof dbSourceMap)[ExternalOrderSource];
 
 const importStatusMap: Record<string, StoredOrderImport["importStatus"]> = {
   PENDING: "pending",
@@ -450,9 +459,31 @@ function importWarnings(order: NormalizedImportOrder) {
   return order.items.flatMap((item) => item.warnings.map((warning) => `${item.title}: ${warning}`));
 }
 
-export async function upsertOrderImport(payload: ExternalOrderPayload) {
+export function getImportStartDate() {
+  const value = process.env.IMPORT_START_DATE;
+  const date = value ? new Date(`${value}T00:00:00.000Z`) : new Date("2026-05-28T00:00:00.000Z");
+
+  if (Number.isNaN(date.getTime())) {
+    return new Date("2026-05-28T00:00:00.000Z");
+  }
+
+  return date;
+}
+
+export async function upsertOrderImport(payload: ExternalOrderPayload): Promise<OrderImportUpsertResult> {
   if (!hasDatabaseUrl()) {
     throw new Error("DATABASE_URL is not configured yet.");
+  }
+
+  const receivedAt = new Date(payload.receivedAt);
+
+  if (receivedAt < getImportStartDate()) {
+    return {
+      result: "skipped",
+      externalId: payload.id,
+      orderNumber: payload.orderNumber,
+      message: "Order is older than IMPORT_START_DATE.",
+    };
   }
 
   const prisma = getPrisma();
@@ -470,7 +501,12 @@ export async function upsertOrderImport(payload: ExternalOrderPayload) {
   });
 
   if (existing?.status === "APPROVED" || existing?.status === "SKIPPED") {
-    return;
+    return {
+      result: "skipped",
+      externalId: payload.id,
+      orderNumber: payload.orderNumber,
+      message: `Existing import is ${existing.status}.`,
+    };
   }
 
   await prisma.orderImport.upsert({
@@ -487,7 +523,7 @@ export async function upsertOrderImport(payload: ExternalOrderPayload) {
       customerEmail: payload.customerEmail || null,
       amountCents: parseAmountCents(payload.amount),
       currency: payload.currency,
-      receivedAt: new Date(payload.receivedAt),
+      receivedAt,
       rawPayload: payload,
       normalizedPayload: normalized,
       warnings,
@@ -502,12 +538,19 @@ export async function upsertOrderImport(payload: ExternalOrderPayload) {
       customerEmail: payload.customerEmail || null,
       amountCents: parseAmountCents(payload.amount),
       currency: payload.currency,
-      receivedAt: new Date(payload.receivedAt),
+      receivedAt,
       rawPayload: payload,
       normalizedPayload: normalized,
       warnings,
     },
   });
+
+  return {
+    result: existing ? "updated" : "imported",
+    externalId: payload.id,
+    orderNumber: payload.orderNumber,
+    message: existing ? "Existing import updated." : "New import created.",
+  };
 }
 
 export async function getStoredOrderImports(): Promise<StoredOrderImport[] | null> {
@@ -517,6 +560,11 @@ export async function getStoredOrderImports(): Promise<StoredOrderImport[] | nul
 
   const prisma = getPrisma();
   const imports = await prisma.orderImport.findMany({
+    where: {
+      receivedAt: {
+        gte: getImportStartDate(),
+      },
+    },
     include: { approvedOrder: { select: { orderNumber: true } } },
     orderBy: [{ status: "asc" }, { receivedAt: "desc" }],
   });

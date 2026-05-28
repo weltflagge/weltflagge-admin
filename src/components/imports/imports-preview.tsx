@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText, PackageSearch, RefreshCcw, RotateCcw, Save, Send, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import type { ImportDashboard, ImportSourceId } from "@/src/lib/import-sync";
 import { sourceLabels } from "@/src/lib/mock-orders";
 import { getCatalogEntry, getCatalogMaterial, printModeLabels, productCatalog, type PrintMode, type ProductTypeId } from "@/src/lib/product-catalog";
 import type { NormalizedImportItem, NormalizedImportOrder, StoredOrderImport } from "@/src/lib/order-imports";
@@ -12,6 +13,7 @@ import { manufacturerLabels } from "@/src/lib/mock-production";
 import type { ManufacturerId } from "@/src/types/production";
 
 type SyncAction = () => Promise<{ ok: boolean; message?: string; error?: string }>;
+type SyncSourceAction = (source: ImportSourceId) => Promise<{ ok: boolean; message?: string; error?: string }>;
 type ApproveAction = (importId: string, input: NormalizedImportOrder) => Promise<{ ok: boolean; orderNumber?: string; error?: string }>;
 type SkipAction = (importId: string) => Promise<{ ok: boolean; error?: string }>;
 type ReopenAction = (importId: string) => Promise<{ ok: boolean; status?: "pending" | "needs_review"; error?: string }>;
@@ -42,6 +44,29 @@ function statusLabel(status: StoredOrderImport["importStatus"]) {
     skipped: "Uebersprungen",
     error: "Fehler",
   }[status];
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("de-DE", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function resultClass(result: string) {
+  if (result === "imported") return "text-emerald-200";
+  if (result === "updated") return "text-cyan-200";
+  if (result === "skipped") return "text-slate-400";
+
+  return "text-red-200";
+}
+
+function dashboardSourceLabel(dashboard: ImportDashboard, source: ImportSourceId) {
+  return dashboard.sources.find((entry) => entry.source === source)?.label ?? sourceLabels[source];
 }
 
 function recalculateOrder(order: NormalizedImportOrder): NormalizedImportOrder {
@@ -136,13 +161,17 @@ function editableOrder(order: StoredOrderImport): NormalizedImportOrder {
 
 export function ImportsPreview({
   initialImports,
+  dashboard,
   onSyncWoo,
+  onSyncSource,
   onApproveOrder,
   onSkipOrder,
   onReopenOrder,
 }: {
   initialImports: StoredOrderImport[];
+  dashboard: ImportDashboard;
   onSyncWoo: SyncAction;
+  onSyncSource: SyncSourceAction;
   onApproveOrder: ApproveAction;
   onSkipOrder: SkipAction;
   onReopenOrder: ReopenAction;
@@ -204,6 +233,18 @@ export function ImportsPreview({
     try {
       const result = await onSyncWoo();
       setMessage(result.ok ? result.message ?? "WooCommerce sync fertig." : result.error ?? "WooCommerce sync fehlgeschlagen.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function syncSource(source: ImportSourceId) {
+    setBusy(`source-${source}`);
+    setMessage(null);
+
+    try {
+      const result = await onSyncSource(source);
+      setMessage(result.ok ? result.message ?? "Manueller Sync fertig." : result.error ?? "Manueller Sync fehlgeschlagen.");
     } finally {
       setBusy(null);
     }
@@ -287,19 +328,105 @@ export function ImportsPreview({
     <div className="space-y-6">
       <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-sm font-medium text-cyan-200">WooCommerce Import</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-5xl">Incoming orders</h1>
+          <p className="text-sm font-medium text-cyan-200">Automatic sync</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-5xl">Imports</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-            weltflagge.de Bestellungen landen zuerst hier. Unsichere Felder korrigieren, dann per Freigabe als Auftrag erstellen.
+            Neue externe Bestellungen landen automatisch in der Import Queue. Startdatum: {dashboard.startDate}.
           </p>
         </div>
-        <Button type="button" onClick={syncWoo} disabled={busy === "sync"} className="rounded-xl bg-cyan-200 px-5 text-slate-950 hover:bg-cyan-100">
+        <Button type="button" onClick={syncWoo} disabled={busy === "sync"} variant="outline" className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800">
           <RefreshCcw className="h-4 w-4" />
-          {busy === "sync" ? "Sync..." : "weltflagge.de sync"}
+          {busy === "sync" ? "Sync..." : "Debug sync weltflagge.de"}
         </Button>
       </header>
 
       {message ? <p className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-sm text-slate-300">{message}</p> : null}
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {dashboard.sources.map((source) => (
+          <Card key={source.source} className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+            <CardContent className="space-y-4 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-semibold text-white">{source.label}</p>
+                  <p className={source.configured ? "mt-1 text-xs text-emerald-200" : "mt-1 text-xs text-amber-200"}>
+                    {source.configured ? "Verbunden" : "Konfiguration fehlt"}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => syncSource(source.source)}
+                  disabled={!source.configured || busy === `source-${source.source}`}
+                  variant="outline"
+                  className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  {busy === `source-${source.source}` ? "Sync..." : "Manuell synchronisieren"}
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-lg bg-slate-900/70 p-3">
+                  <p className="text-xs text-slate-500">Importiert</p>
+                  <p className="mt-1 text-lg font-semibold text-emerald-200">{source.importedToday}</p>
+                </div>
+                <div className="rounded-lg bg-slate-900/70 p-3">
+                  <p className="text-xs text-slate-500">Updates</p>
+                  <p className="mt-1 text-lg font-semibold text-cyan-200">{source.updatedToday}</p>
+                </div>
+                <div className="rounded-lg bg-slate-900/70 p-3">
+                  <p className="text-xs text-slate-500">Skipped</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-300">{source.skippedToday}</p>
+                </div>
+              </div>
+              <div className="space-y-2 text-xs text-slate-500">
+                <p>Last success: <span className="text-slate-300">{formatTimestamp(source.lastSuccessfulSyncAt)}</span></p>
+                <p>Last error: <span className={source.lastErrorMessage ? "text-red-200" : "text-slate-300"}>{source.lastErrorMessage || "-"}</span></p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+
+      <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+        <CardContent className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Import log</h2>
+            <span className="text-xs text-slate-500">Letzte 50 Ereignisse</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="text-xs uppercase text-slate-500">
+                <tr className="border-b border-slate-800">
+                  <th className="py-2 pr-4 font-medium">Zeit</th>
+                  <th className="py-2 pr-4 font-medium">Quelle</th>
+                  <th className="py-2 pr-4 font-medium">External ID</th>
+                  <th className="py-2 pr-4 font-medium">Result</th>
+                  <th className="py-2 font-medium">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.logs.length ? (
+                  dashboard.logs.map((log) => (
+                    <tr key={log.id} className="border-b border-slate-900 text-slate-300">
+                      <td className="py-2 pr-4">{formatTimestamp(log.createdAt)}</td>
+                      <td className="py-2 pr-4">{dashboardSourceLabel(dashboard, log.source)}</td>
+                      <td className="py-2 pr-4 font-mono text-xs">{log.externalId}</td>
+                      <td className={`py-2 pr-4 font-medium ${resultClass(log.result)}`}>{log.result}</td>
+                      <td className="py-2 text-slate-400">{log.message || "-"}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-slate-500">
+                      Noch keine Import Logs.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")} className={viewButtonClass("active")}>

@@ -103,6 +103,41 @@ enum OrderImportStatus {
   ERROR
 }
 
+enum ImportLogResult {
+  IMPORTED
+  UPDATED
+  SKIPPED
+  ERROR
+}
+
+model ImportSyncState {
+  id                   String      @id @default(cuid())
+  source               OrderSource @unique
+  lastSuccessfulSyncAt DateTime?
+  lastErrorAt          DateTime?
+  lastErrorMessage     String?
+  importedToday        Int         @default(0)
+  updatedToday         Int         @default(0)
+  skippedToday         Int         @default(0)
+  counterDate          DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+}
+
+model ImportLog {
+  id         String          @id @default(cuid())
+  source     OrderSource
+  externalId String?
+  result     ImportLogResult
+  message    String?
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  @@index([source, createdAt])
+  @@index([result, createdAt])
+  @@index([externalId])
+}
+
 enum InventoryMovementReason {
   INITIAL_STOCK
   MANUAL_CORRECTION

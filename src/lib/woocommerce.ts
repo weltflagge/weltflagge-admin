@@ -1,4 +1,6 @@
-import type { ExternalOrderItemPayload, ExternalOrderPayload, ExternalOrderSource, ExternalPrintFile } from "@/src/lib/order-imports";
+import { getImportStartDate, type ExternalOrderItemPayload, type ExternalOrderPayload, type ExternalOrderSource, type ExternalPrintFile } from "@/src/lib/order-imports";
+
+export type WooCommerceSourceId = Extract<ExternalOrderSource, "woocommerce-weltflagge" | "woocommerce-partner">;
 
 type WooAddress = {
   first_name?: string;
@@ -29,7 +31,7 @@ type WooLineItem = {
   meta_data?: WooMeta[];
 };
 
-type WooOrder = {
+export type WooOrder = {
   id: number;
   number?: string;
   status?: string;
@@ -43,18 +45,55 @@ type WooOrder = {
   meta_data?: WooMeta[];
 };
 
-function getConfig() {
-  const url = process.env.WOOCOMMERCE_WELTFLAGGE_URL ?? process.env.WOOCOMMERCE_URL;
-  const consumerKey = process.env.WOOCOMMERCE_WELTFLAGGE_CONSUMER_KEY ?? process.env.WOOCOMMERCE_CONSUMER_KEY;
-  const consumerSecret = process.env.WOOCOMMERCE_WELTFLAGGE_CONSUMER_SECRET ?? process.env.WOOCOMMERCE_CONSUMER_SECRET;
+export type WooSourceConfig = {
+  source: WooCommerceSourceId;
+  label: string;
+  baseUrl?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+  webhookSecret?: string;
+};
 
-  if (!url || !consumerKey || !consumerSecret) {
-    throw new Error("WooCommerce env fehlt: WOOCOMMERCE_WELTFLAGGE_URL, WOOCOMMERCE_WELTFLAGGE_CONSUMER_KEY, WOOCOMMERCE_WELTFLAGGE_CONSUMER_SECRET.");
+const sourceConfigs: Record<WooCommerceSourceId, WooSourceConfig> = {
+  "woocommerce-weltflagge": {
+    source: "woocommerce-weltflagge",
+    label: "weltflagge.de",
+    baseUrl: process.env.WOOCOMMERCE_WELTFLAGGE_URL ?? process.env.WOOCOMMERCE_URL,
+    consumerKey: process.env.WOOCOMMERCE_WELTFLAGGE_CONSUMER_KEY ?? process.env.WOOCOMMERCE_CONSUMER_KEY,
+    consumerSecret: process.env.WOOCOMMERCE_WELTFLAGGE_CONSUMER_SECRET ?? process.env.WOOCOMMERCE_CONSUMER_SECRET,
+    webhookSecret: process.env.WOOCOMMERCE_WELTFLAGGE_WEBHOOK_SECRET ?? process.env.IMPORT_SYNC_SECRET,
+  },
+  "woocommerce-partner": {
+    source: "woocommerce-partner",
+    label: "flaggeshop.de",
+    baseUrl: process.env.WOOCOMMERCE_FLAGGESHOP_URL,
+    consumerKey: process.env.WOOCOMMERCE_FLAGGESHOP_CONSUMER_KEY,
+    consumerSecret: process.env.WOOCOMMERCE_FLAGGESHOP_CONSUMER_SECRET,
+    webhookSecret: process.env.WOOCOMMERCE_FLAGGESHOP_WEBHOOK_SECRET ?? process.env.IMPORT_SYNC_SECRET,
+  },
+};
+
+export function getWooSourceConfig(source: WooCommerceSourceId) {
+  return sourceConfigs[source];
+}
+
+export function isWooSourceConfigured(source: WooCommerceSourceId) {
+  const config = getWooSourceConfig(source);
+
+  return Boolean(config.baseUrl && config.consumerKey && config.consumerSecret);
+}
+
+function requireConfig(source: WooCommerceSourceId) {
+  const config = getWooSourceConfig(source);
+
+  if (!config.baseUrl || !config.consumerKey || !config.consumerSecret) {
+    throw new Error(`${config.label} WooCommerce config is missing.`);
   }
 
   return {
-    baseUrl: url.replace(/\/$/, ""),
-    auth: Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64"),
+    ...config,
+    baseUrl: config.baseUrl.replace(/\/$/, ""),
+    auth: Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString("base64"),
   };
 }
 
@@ -133,15 +172,20 @@ function findPrintFiles(lineItem: WooLineItem, order: WooOrder): ExternalPrintFi
   return files;
 }
 
-function mapOrder(order: WooOrder, source: ExternalOrderSource): ExternalOrderPayload {
+function orderNumberPrefix(source: WooCommerceSourceId) {
+  return source === "woocommerce-partner" ? "FS" : "WF";
+}
+
+export function mapWooOrder(order: WooOrder, source: WooCommerceSourceId): ExternalOrderPayload {
   const billing = mapAddress(order.billing);
   const shipping = mapAddress(order.shipping);
   const customerName = billing.company || billing.name || shipping.company || shipping.name || "WooCommerce Kunde";
+  const prefix = orderNumberPrefix(source);
 
   return {
     id: `wc-${order.id}`,
     source,
-    orderNumber: order.number ? `WF-${order.number}` : `WF-${order.id}`,
+    orderNumber: order.number ? `${prefix}-${order.number}` : `${prefix}-${order.id}`,
     customerName,
     customerEmail: order.billing?.email ?? "",
     customerPhone: order.billing?.phone ?? "",
@@ -162,13 +206,14 @@ function mapOrder(order: WooOrder, source: ExternalOrderSource): ExternalOrderPa
   };
 }
 
-export async function fetchWeltflaggeWooOrders() {
-  const config = getConfig();
+export async function fetchWooOrders(source: WooCommerceSourceId) {
+  const config = requireConfig(source);
   const params = new URLSearchParams({
-    per_page: "5",
+    per_page: "20",
     orderby: "date",
     order: "desc",
     status: "processing,on-hold,pending",
+    after: getImportStartDate().toISOString(),
   });
   const response = await fetch(`${config.baseUrl}/wp-json/wc/v3/orders?${params.toString()}`, {
     headers: {
@@ -179,9 +224,13 @@ export async function fetchWeltflaggeWooOrders() {
   });
 
   if (!response.ok) {
-    throw new Error(`WooCommerce sync failed (${response.status}).`);
+    throw new Error(`${config.label} WooCommerce sync failed (${response.status}).`);
   }
 
   const orders = (await response.json()) as WooOrder[];
-  return orders.map((order) => mapOrder(order, "woocommerce-weltflagge"));
+  return orders.map((order) => mapWooOrder(order, source));
+}
+
+export async function fetchWeltflaggeWooOrders() {
+  return fetchWooOrders("woocommerce-weltflagge");
 }

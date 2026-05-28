@@ -7,61 +7,23 @@ import type {
 } from "@/src/types/production";
 
 type ActiveManufacturer = Exclude<ManufacturerId, "needs_review">;
+type OpinionExportSection = "FLAGS" | "BANNERS";
+
+const standardProductionExportColumns: ProductionExportColumn[] = [
+  { key: "material", label: "MATERIAL", getValue: (row) => row.material },
+  { key: "finishing", label: "CONFEKTION", getValue: (row) => row.finishing },
+  { key: "printFile", label: "PRINT FILE", getValue: (row) => row.printFile.fileName || "missing" },
+  { key: "size", label: "SIZE", getValue: (row) => row.size },
+  { key: "quantity", label: "QUANTITY", getValue: (row) => row.quantity },
+  { key: "orderId", label: "BESTELLNUMMER", getValue: (row) => row.orderId },
+  { key: "customer", label: "NAME", getValue: (row) => row.customer },
+];
 
 export const productionExportSchemas: Record<ActiveManufacturer, ProductionExportColumn[]> = {
-  opinion: [
-    { key: "position", label: "Pos.", getValue: (_row, index) => index + 1 },
-    { key: "orderId", label: "Bestellung", getValue: (row) => row.orderId },
-    { key: "customer", label: "Kunde", getValue: (row) => row.customer },
-    { key: "product", label: "Artikel", getValue: (row) => row.productName },
-    { key: "material", label: "Material", getValue: (row) => row.material },
-    { key: "size", label: "Groesse", getValue: (row) => row.size },
-    { key: "quantity", label: "Stk.", getValue: (row) => row.quantity },
-    { key: "finishing", label: "Konfektion", getValue: (row) => row.finishing },
-    { key: "printFile", label: "Druckdaten-Datei", getValue: (row) => row.printFile.fileName || "missing" },
-    { key: "printStatus", label: "Druckdaten-Status", getValue: (row) => row.printFile.status },
-    { key: "productionStatus", label: "Produktionsstatus", getValue: (row) => row.productionStatus },
-    { key: "notes", label: "Bemerkung", getValue: (row) => row.notes },
-  ],
-  logo_pl: [
-    { key: "orderId", label: "Order no.", getValue: (row) => row.orderId },
-    { key: "customer", label: "Customer", getValue: (row) => row.customer },
-    { key: "sku", label: "SKU", getValue: (row) => row.sku },
-    { key: "product", label: "Product", getValue: (row) => row.productName },
-    { key: "premiumMaterial", label: "Fabric / quality", getValue: (row) => row.material },
-    { key: "size", label: "Size", getValue: (row) => row.size },
-    { key: "quantity", label: "Quantity", getValue: (row) => row.quantity },
-    { key: "finishing", label: "Sewing / finishing", getValue: (row) => row.finishing },
-    { key: "printFile", label: "Artwork file", getValue: (row) => row.printFile.fileName || "missing" },
-    { key: "printStatus", label: "Artwork status", getValue: (row) => row.printFile.status },
-    { key: "deadline", label: "Deadline", getValue: (row) => row.deadline },
-    { key: "notes", label: "Notes", getValue: (row) => row.notes },
-  ],
-  mph_maciej: [
-    { key: "orderId", label: "Order", getValue: (row) => row.orderId },
-    { key: "customer", label: "Client", getValue: (row) => row.customer },
-    { key: "product", label: "Beachflag type", getValue: (row) => row.productName },
-    { key: "size", label: "Size", getValue: (row) => row.size },
-    { key: "quantity", label: "Qty", getValue: (row) => row.quantity },
-    { key: "finishing", label: "Pole / tunnel", getValue: (row) => row.finishing },
-    { key: "printFile", label: "Artwork file front", getValue: (row) => row.printFile.fileName || "missing" },
-    { key: "printFileBack", label: "Artwork file back", getValue: (row) => row.printFiles?.find((file) => file.side === "back")?.fileName || "" },
-    { key: "printStatus", label: "Artwork status", getValue: (row) => row.printFile.status },
-    { key: "deadline", label: "Needed by", getValue: (row) => row.deadline },
-    { key: "notes", label: "Production note", getValue: (row) => row.notes },
-  ],
-  wmd: [
-    { key: "orderId", label: "Order", getValue: (row) => row.orderId },
-    { key: "customer", label: "Customer", getValue: (row) => row.customer },
-    { key: "product", label: "System", getValue: (row) => row.productName },
-    { key: "size", label: "Size", getValue: (row) => row.size },
-    { key: "quantity", label: "Qty", getValue: (row) => row.quantity },
-    { key: "material", label: "Material", getValue: (row) => row.material },
-    { key: "printFile", label: "Artwork file", getValue: (row) => row.printFile.fileName || "missing" },
-    { key: "printStatus", label: "Artwork status", getValue: (row) => row.printFile.status },
-    { key: "deadline", label: "Needed by", getValue: (row) => row.deadline },
-    { key: "notes", label: "Notes", getValue: (row) => row.notes },
-  ],
+  opinion: standardProductionExportColumns,
+  logo_pl: standardProductionExportColumns,
+  mph_maciej: standardProductionExportColumns,
+  wmd: standardProductionExportColumns,
 };
 
 function compareText(a: string, b: string) {
@@ -72,8 +34,8 @@ export function sortProductionRowsForExport(manufacturer: ActiveManufacturer, ro
   return [...rows].sort((a, b) => {
     if (manufacturer === "opinion") {
       return (
-        compareText(a.material, b.material) ||
         compareText(a.productName, b.productName) ||
+        compareText(a.material, b.material) ||
         compareText(a.size, b.size) ||
         compareText(a.orderId, b.orderId)
       );
@@ -85,6 +47,11 @@ export function sortProductionRowsForExport(manufacturer: ActiveManufacturer, ro
 
     return compareText(a.deadline, b.deadline) || compareText(a.orderId, b.orderId);
   });
+}
+
+function getOpinionExportSection(row: ProductionRow): OpinionExportSection {
+  const haystack = `${row.productName} ${row.material} ${row.sku}`.toLowerCase();
+  return haystack.includes("banner") ? "BANNERS" : "FLAGS";
 }
 
 export function validateProductionRowsForExport(
@@ -184,50 +151,124 @@ function columnName(index: number) {
   return name;
 }
 
-function sheetXml(rows: ProductionRow[], columns: ProductionExportColumn[], sheetTitle: string) {
-  const header = columns
+function headerCells(columns: ProductionExportColumn[], rowNumber: number) {
+  return columns
     .map((column, columnIndex) => {
-      const ref = `${columnName(columnIndex)}1`;
-      return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(column.label)}</t></is></c>`;
+      const ref = `${columnName(columnIndex)}${rowNumber}`;
+      return `<c r="${ref}" s="1" t="inlineStr"><is><t>${escapeXml(column.label)}</t></is></c>`;
     })
     .join("");
+}
 
-  const body = rows
-    .map((row, rowIndex) => {
-      const rowNumber = rowIndex + 2;
-      const cells = columns
-        .map((column, columnIndex) => {
-          const ref = `${columnName(columnIndex)}${rowNumber}`;
-          const value = column.getValue(row, rowIndex);
+function dataCells(row: ProductionRow, columns: ProductionExportColumn[], rowNumber: number, rowIndex: number) {
+  return columns
+    .map((column, columnIndex) => {
+      const ref = `${columnName(columnIndex)}${rowNumber}`;
+      const value = column.getValue(row, rowIndex);
 
-          if (typeof value === "number") {
-            return `<c r="${ref}"><v>${value}</v></c>`;
-          }
+      if (typeof value === "number") {
+        return `<c r="${ref}" s="2"><v>${value}</v></c>`;
+      }
 
-          return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
-        })
-        .join("");
-
-      return `<row r="${rowNumber}">${cells}</row>`;
+      return `<c r="${ref}" s="2" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
     })
     .join("");
+}
+
+function sectionTitleRow(title: OpinionExportSection, rowNumber: number, columns: ProductionExportColumn[]) {
+  const emptyCells = columns
+    .slice(1)
+    .map((_column, columnIndex) => `<c r="${columnName(columnIndex + 1)}${rowNumber}" s="3"/>`)
+    .join("");
+
+  return `<row r="${rowNumber}" ht="24" customHeight="1"><c r="A${rowNumber}" s="3" t="inlineStr"><is><t>${title}</t></is></c>${emptyCells}</row>`;
+}
+
+function getSheetRows(rows: ProductionRow[], columns: ProductionExportColumn[], manufacturer: ActiveManufacturer) {
+  let rowNumber = 1;
+  let dataRowIndex = 0;
+  const sheetRows: string[] = [];
+  const mergeRefs: string[] = [];
+
+  if (manufacturer !== "opinion") {
+    sheetRows.push(`<row r="${rowNumber}">${headerCells(columns, rowNumber)}</row>`);
+
+    for (const row of rows) {
+      rowNumber += 1;
+      sheetRows.push(`<row r="${rowNumber}">${dataCells(row, columns, rowNumber, dataRowIndex)}</row>`);
+      dataRowIndex += 1;
+    }
+
+    return { sheetRows, mergeRefs, rowCount: rowNumber };
+  }
+
+  for (const section of ["FLAGS", "BANNERS"] as const) {
+    const sectionRows = rows.filter((row) => getOpinionExportSection(row) === section);
+    const sectionTitleRef = `A${rowNumber}:${columnName(columns.length - 1)}${rowNumber}`;
+
+    sheetRows.push(sectionTitleRow(section, rowNumber, columns));
+    mergeRefs.push(sectionTitleRef);
+    rowNumber += 1;
+    sheetRows.push(`<row r="${rowNumber}">${headerCells(columns, rowNumber)}</row>`);
+
+    for (const row of sectionRows) {
+      rowNumber += 1;
+      sheetRows.push(`<row r="${rowNumber}">${dataCells(row, columns, rowNumber, dataRowIndex)}</row>`);
+      dataRowIndex += 1;
+    }
+
+    rowNumber += 1;
+  }
+
+  return { sheetRows, mergeRefs, rowCount: rowNumber - 1 };
+}
+
+function sheetXml(rows: ProductionRow[], columns: ProductionExportColumn[], sheetTitle: string, manufacturer: ActiveManufacturer) {
+  const { sheetRows, mergeRefs, rowCount } = getSheetRows(rows, columns, manufacturer);
 
   const colDefs = columns.map((_column, index) => `<col min="${index + 1}" max="${index + 1}" width="22" customWidth="1"/>`).join("");
+  const mergeCells = mergeRefs.length
+    ? `<mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
+    : "";
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
-  <dimension ref="A1:${columnName(columns.length - 1)}${rows.length + 1}"/>
+  <dimension ref="A1:${columnName(columns.length - 1)}${rowCount}"/>
   <sheetViews><sheetView workbookViewId="0"/></sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>${colDefs}</cols>
   <sheetData>
-    <row r="1">${header}</row>
-    ${body}
+    ${sheetRows.join("\n    ")}
   </sheetData>
+  ${mergeCells}
   <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
   <headerFooter><oddHeader>&amp;C${escapeXml(sheetTitle)}</oddHeader></headerFooter>
 </worksheet>`;
+}
+
+function stylesXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE2E8F0"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
 }
 
 const crcTable = Array.from({ length: 256 }, (_item, index) => {
@@ -358,6 +399,7 @@ export function createProductionXlsxBlob(manufacturer: ActiveManufacturer, rows:
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`,
     },
     {
@@ -379,11 +421,16 @@ export function createProductionXlsxBlob(manufacturer: ActiveManufacturer, rows:
       content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`,
     },
     {
+      path: "xl/styles.xml",
+      content: stylesXml(),
+    },
+    {
       path: "xl/worksheets/sheet1.xml",
-      content: sheetXml(sortedRows, columns, sheetTitle),
+      content: sheetXml(sortedRows, columns, sheetTitle, manufacturer),
     },
   ];
 

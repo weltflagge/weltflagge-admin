@@ -24,6 +24,7 @@ export type ImportSourceStatus = {
   importedToday: number;
   updatedToday: number;
   skippedToday: number;
+  errorsToday: number;
 };
 
 export type ImportDashboard = {
@@ -252,6 +253,7 @@ export async function getImportDashboard(): Promise<ImportDashboard> {
         importedToday: 0,
         updatedToday: 0,
         skippedToday: 0,
+        errorsToday: 0,
       })),
       logs: [],
     };
@@ -276,7 +278,7 @@ export async function getImportDashboard(): Promise<ImportDashboard> {
   ]);
   const stateBySource = new Map(states.map((state) => [state.source, state]));
 
-  function countToday(source: ImportSourceId, result: "IMPORTED" | "UPDATED" | "SKIPPED") {
+  function countToday(source: ImportSourceId, result: "IMPORTED" | "UPDATED" | "SKIPPED" | "ERROR") {
     return todayLogs.filter((log) => log.source === dbSourceMap[source] && log.result === result).length;
   }
 
@@ -296,6 +298,7 @@ export async function getImportDashboard(): Promise<ImportDashboard> {
         importedToday: countToday(source, "IMPORTED"),
         updatedToday: countToday(source, "UPDATED"),
         skippedToday: countToday(source, "SKIPPED"),
+        errorsToday: countToday(source, "ERROR"),
       };
     }),
     logs: logs.map((log) => ({

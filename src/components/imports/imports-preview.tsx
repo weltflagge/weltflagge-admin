@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, PackageSearch, RefreshCcw, RotateCcw, Save, Send, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FileText, PackageSearch, RefreshCcw, RotateCcw, Save, Send, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ImportDashboard, ImportSourceId } from "@/src/lib/import-sync";
@@ -18,6 +18,7 @@ type ApproveAction = (importId: string, input: NormalizedImportOrder) => Promise
 type SkipAction = (importId: string) => Promise<{ ok: boolean; error?: string }>;
 type ReopenAction = (importId: string) => Promise<{ ok: boolean; status?: "pending" | "needs_review"; error?: string }>;
 type ImportView = "active" | "skipped" | "approved";
+type LogFilter = "all" | "imported" | "updated" | "skipped" | "error";
 
 const inputClass =
   "w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-4 focus:ring-cyan-300/10";
@@ -181,6 +182,9 @@ export function ImportsPreview({
   const [busy, setBusy] = useState<string | null>(null);
   const [view, setView] = useState<ImportView>("active");
   const [skippingIds, setSkippingIds] = useState<string[]>([]);
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [logLimit, setLogLimit] = useState(10);
+  const [logFilter, setLogFilter] = useState<LogFilter>("all");
 
   const totals = useMemo(() => {
     const activeOrders = orders.filter((order) => order.importStatus !== "skipped" && order.importStatus !== "approved");
@@ -203,6 +207,24 @@ export function ImportsPreview({
       }),
     [orders, view]
   );
+  const syncSummary = useMemo(() => {
+    const lastSync = dashboard.sources
+      .map((source) => source.lastSuccessfulSyncAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+    const imported = dashboard.sources.reduce((sum, source) => sum + source.importedToday, 0);
+    const updated = dashboard.sources.reduce((sum, source) => sum + source.updatedToday, 0);
+    const errors = dashboard.sources.reduce((sum, source) => sum + source.errorsToday, 0);
+
+    return { lastSync, imported, updated, errors };
+  }, [dashboard.sources]);
+  const visibleLogs = useMemo(() => {
+    const filteredLogs = logFilter === "all" ? dashboard.logs : dashboard.logs.filter((log) => log.result === logFilter);
+
+    return filteredLogs.slice(0, logLimit);
+  }, [dashboard.logs, logFilter, logLimit]);
+  const filteredLogCount = logFilter === "all" ? dashboard.logs.length : dashboard.logs.filter((log) => log.result === logFilter).length;
 
   function updateOrder(importDbId: string, patch: Partial<NormalizedImportOrder>) {
     setOrders((current) =>
@@ -342,6 +364,16 @@ export function ImportsPreview({
 
       {message ? <p className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-sm text-slate-300">{message}</p> : null}
 
+      <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+        Letzter Sync: <span className="text-white">{formatTimestamp(syncSummary.lastSync)}</span>
+        <span className="px-2 text-slate-600">·</span>
+        <span className="text-emerald-200">{syncSummary.imported} importiert</span>
+        <span className="px-2 text-slate-600">·</span>
+        <span className="text-cyan-200">{syncSummary.updated} aktualisiert</span>
+        <span className="px-2 text-slate-600">·</span>
+        <span className={syncSummary.errors ? "text-red-200" : "text-slate-300"}>{syncSummary.errors} Fehler</span>
+      </div>
+
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         {dashboard.sources.map((source) => (
           <Card key={source.source} className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
@@ -387,46 +419,15 @@ export function ImportsPreview({
         ))}
       </section>
 
-      <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
-        <CardContent className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-white">Import log</h2>
-            <span className="text-xs text-slate-500">Letzte 50 Ereignisse</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="text-xs uppercase text-slate-500">
-                <tr className="border-b border-slate-800">
-                  <th className="py-2 pr-4 font-medium">Zeit</th>
-                  <th className="py-2 pr-4 font-medium">Quelle</th>
-                  <th className="py-2 pr-4 font-medium">External ID</th>
-                  <th className="py-2 pr-4 font-medium">Result</th>
-                  <th className="py-2 font-medium">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.logs.length ? (
-                  dashboard.logs.map((log) => (
-                    <tr key={log.id} className="border-b border-slate-900 text-slate-300">
-                      <td className="py-2 pr-4">{formatTimestamp(log.createdAt)}</td>
-                      <td className="py-2 pr-4">{dashboardSourceLabel(dashboard, log.source)}</td>
-                      <td className="py-2 pr-4 font-mono text-xs">{log.externalId}</td>
-                      <td className={`py-2 pr-4 font-medium ${resultClass(log.result)}`}>{log.result}</td>
-                      <td className="py-2 text-slate-400">{log.message || "-"}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-slate-500">
-                      Noch keine Import Logs.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+        Automatischer Sync laeuft nur, wenn in WooCommerce die Webhooks fuer order.created und order.updated auf
+        <span className="font-mono text-amber-50"> /api/imports/webhooks/woocommerce/weltflagge </span>
+        bzw.
+        <span className="font-mono text-amber-50"> /api/imports/webhooks/woocommerce/flaggeshop </span>
+        zeigen oder ein Coolify Cron
+        <span className="font-mono text-amber-50"> /api/imports/sync </span>
+        mit IMPORT_SYNC_SECRET aufruft.
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")} className={viewButtonClass("active")}>
@@ -637,6 +638,91 @@ export function ImportsPreview({
           );
         })}
       </section>
+
+      <Card className="rounded-xl border-slate-800 bg-slate-950/70 shadow-none">
+        <CardContent className="p-5">
+          <button
+            type="button"
+            onClick={() => setLogExpanded((current) => !current)}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-white">Import log anzeigen</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {dashboard.logs.length} Logeintraege verfuegbar, standardmaessig ausgeblendet.
+              </p>
+            </div>
+            {logExpanded ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+
+          {logExpanded ? (
+            <div className="mt-5 space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {(["all", "imported", "updated", "skipped", "error"] as LogFilter[]).map((filter) => (
+                  <Button
+                    key={filter}
+                    type="button"
+                    variant={logFilter === filter ? "default" : "outline"}
+                    onClick={() => {
+                      setLogFilter(filter);
+                      setLogLimit(10);
+                    }}
+                    className={
+                      logFilter === filter
+                        ? "rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+                        : "rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+                    }
+                  >
+                    {filter === "all" ? "Alle" : filter}
+                  </Button>
+                ))}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="text-xs uppercase text-slate-500">
+                    <tr className="border-b border-slate-800">
+                      <th className="py-2 pr-4 font-medium">Zeit</th>
+                      <th className="py-2 pr-4 font-medium">Quelle</th>
+                      <th className="py-2 pr-4 font-medium">External ID</th>
+                      <th className="py-2 pr-4 font-medium">Result</th>
+                      <th className="py-2 font-medium">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleLogs.length ? (
+                      visibleLogs.map((log) => (
+                        <tr key={log.id} className="border-b border-slate-900 text-slate-300">
+                          <td className="py-2 pr-4">{formatTimestamp(log.createdAt)}</td>
+                          <td className="py-2 pr-4">{dashboardSourceLabel(dashboard, log.source)}</td>
+                          <td className="py-2 pr-4 font-mono text-xs">{log.externalId}</td>
+                          <td className={`py-2 pr-4 font-medium ${resultClass(log.result)}`}>{log.result}</td>
+                          <td className="py-2 text-slate-400">{log.message || "-"}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-slate-500">
+                          Keine Logs fuer diesen Filter.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {logLimit < filteredLogCount ? (
+                <Button
+                  type="button"
+                  onClick={() => setLogLimit((current) => current + 10)}
+                  variant="outline"
+                  className="rounded-xl border-slate-800 bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  Mehr anzeigen
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }
